@@ -1,1 +1,1 @@
-# scripts related to scALOFT: 
+# scripts related to scALOFT 
