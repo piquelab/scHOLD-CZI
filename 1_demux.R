@@ -6,20 +6,30 @@ library(tidyverse)
 library(parallel)
 library(data.table)
 
-
-
 rm(list=ls())
 
-outdir <- "/wsu/home/groups/piquelab/SCAIP_2022/Ali/scALOFT/1_demux_output/"
+args <- commandArgs(trailingOnly = TRUE)
+#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/CZI/RNA/counts_cellranger_hg38/demuxlet/demuxlet/","CZ1_group.txt") #for testing
+analysis=args[1]
+basefolder=args[2]
+if(!is.na(args[3])){
+samples=fread(args[3],header=F)$V1
+}
+outdir <- paste0(analysis,"1_demux_output/")
 if (!file.exists(outdir)) dir.create(outdir, showWarnings=F)
 
 #################################
 ### 1. folders of counts data ###
 #################################
-basefolder <- "/nfs/rprdata/SCAIP-ALOFT2/counts_cellranger_2023-05-27/demuxlet/demuxlet/"
 demuxfn <- list.files(basefolder,pattern="*.out.best")
 
-expNames <- gsub(".out.best", "", demuxfn) 
+expNames_in <- gsub(".out.best", "", demuxfn) 
+
+if(!is.na(args[3])){
+expNames <- expNames_in[expNames_in %in% samples] #run subset of all output in the folder
+} else {
+expNames <- expNames_in
+}
 
 ############################
 ### 2, read demuxlet data ###
