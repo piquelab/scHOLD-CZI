@@ -1,11 +1,14 @@
 #
 library(tidyverse)
 library(parallel)
+library(viridis)
+library(pheatmap)
+
 ##library(data.table)
 
 ### 
 args <- commandArgs(trailingOnly = TRUE)
-#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/1_demux_output/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_02_16_2024.txt","CZ1_group.txt") #for testing
+#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_02_16_2024.txt","CZ1_group.txt") #for testing
 outFolder=paste0(args[1],"1_demux_output/")
 cov_file=args[2]
 # set new output dir for filtered out unmatched figures
@@ -24,7 +27,6 @@ demux <- read_rds(opfn)
 opfn <- paste0(outFolder,"1_demux_New.ALL.rds")
 tdemux <- read_rds(opfn)
 
-
 ###
 demux <- demux%>%
          mutate(
@@ -37,7 +39,7 @@ demux <- demux%>%
                 #chem=ifelse(chemi,"V3", "V2")
                 ) 
 
-head(demux)
+#head(demux)
 
 ##This step not necessary for current data as only control and LPS - may need to uncomment
 # correct the EtOH ETOH discrepency in treat column 
@@ -99,7 +101,7 @@ table(exp$Batch)
 missing <- setdiff(exp$dbgap.ID, cell.counts.filt$Sample_ID)
 IDmiss <- exp %>% filter(dbgap.ID %in% missing) %>% mutate(Sample_ID=dbgap.ID) %>% select(dbgap.ID, Batch, Sample_ID) 
 print(IDmiss)
-write.csv(IDmiss, "1_demux_output/missing_samples_in_demultiplexing_results.csv", row.names=F)
+write.csv(IDmiss, paste0(outFolder,"missing_samples_in_demultiplexing_results.csv"), row.names=F)
 
 # merge experimental data and filtered data
 expsub <- exp %>% mutate(Sample_ID=dbgap.ID) %>% select(dbgap.ID, Batch, Sample_ID) #removed Participant.ID as not a variable
@@ -112,25 +114,22 @@ sum(is.na(merge$dbgap.ID))
 sum(merge$Sample_ID != merge$dbgap.ID)
 sum(merge$Batch != merge$BATCH)
 
-# samples where demultiplexing BATCH does not match to the experimental batch for a sampleIDs
-unmatch_batch <- merge %>%
-  filter(BATCH != Batch)
-print(unmatch_batch)
-
 # samples where IDs dont match
 unmatch_ID <- merge %>%
   filter(Sample_ID != dbgap.ID)
 print(unmatch_ID)
 
-# samples where ID_batch dont match -- at least in current data seems to only be instances of NA in exp batch
+# samples where ID_batch dont m
+
+# samples where demultiplexing BATCH does not match to the experimental batch for a sampleIDs
+unmatch_batch <- merge %>% filter(BATCH != Batch) # -- at least in current data seems to only be instances of NA in exp batch
 merge <-  transform(merge, ID_Batch= paste0(dbgap.ID, "_", Batch))# , sep="_" ))
 unmatch_comb <- subset(merge, ID_BATCH != ID_Batch)
-dim(unmatch_comb)
 print(unmatch_comb)
 
-write.csv(unmatch_comb, "1_demux_output/umatched_batches_samples_IDs_compared_to_exp_file.csv", row.names=F)
+write.csv(unmatch_comb, paste0(outFolder,"umatched_batches_samples_IDs_compared_to_exp_file.csv"), row.names=F)
 
-### remove the unmatched from the >100 filtered data. 13 unmatched combinations
+### remove the unmatched from the >100 filtered data. 
 dim(cell.counts.filt)
 unmatch_comb$comb
 
@@ -177,8 +176,15 @@ png(figfn, width=1300, height=1000, res=120)
 fig0
 dev.off()
 ## should make hierarchical, so all the samples in one batch/exp are plotted together
+top10m <- reshape2::dcast(EXP  ~ Sample_ID, data=cell.counts.filt, value.var="n",fun.aggregate=mean,na.rm=T)
+rownames(top10m) <- top10m$EXP  
+top10m[is.na(top10m)] <- 0
+breaksList = c(0,seq(0.1, 4, by = 0.5))
 
-
+figfn <- paste(figuredir, "Figure02_heatmap_100min.png", sep="")
+png(figfn, width=1300, height=1000, res=120)
+pheatmap(top10m[,-1], color = c("grey",inferno(length(breaksList))[-1]), breaks = breaksList, scale="row", cluster_cols = T, cluster_rows = FALSE, clustering_distance_rows = 'correlation',show_colnames = T)
+dev.off()
 
 ### Heat map of fractions per individuals in each library
 p <- ggplot(cell.counts.filt, aes(x=comb, y=EXP, fill=Perc))+
@@ -227,8 +233,6 @@ png(figfn, width=1300, height=1000, res=120)
 print(p)
 dev.off()
 
-
-
 # heatmap
 cellmatexp <- cell.counts.filt %>% ungroup %>% select(EXP,Sample_ID,n) %>% 
   pivot_wider(names_from=EXP,values_from=n,values_fill=0) %>% 
@@ -256,11 +260,7 @@ dev.off()
 aa <- demux %>% dplyr::filter(NUM.READS>10,NUM.SNPS>10) %>%
   select(NEW_BARCODE,NUM.READS,NUM.SNPS,EXP,BATCH,treats,Sample_ID=SNG.BEST.GUESS) 
 
-# remove unmatched and remove <100
 bb <- aa %>% mutate(comb=paste(EXP, Sample_ID, sep="_"))
-head(n100toremove)
-head(rem.unm)
-
 bb <- bb %>% filter(!comb %in% unmatch_comb$comb) %>% filter(!comb %in% n100toremove$comb)
 
 dd <- bb %>% group_by(EXP) %>% summarize(n=n()) 
