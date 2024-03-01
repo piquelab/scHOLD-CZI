@@ -32,6 +32,7 @@ sc <- FindVariableFeatures(sc, selection.method = "vst", nfeatures = 3000)
 sc <- ScaleData(sc, features = rownames(sc)) #can regress out highly variable input with flag: vars.to.regress = "percent.mt"
 sc <- RunPCA(sc, features = VariableFeatures(object = sc))
 #sc <- RunPCA(sc,pc.genes = sc@var.genes, npcs = 100, verbose = TRUE)
+opfn <- paste0(outFolder,"seuratObj-afterPCA.",Sys.Date(),".rds") 
 
 png(width=1000, height=1000, res=120, file=paste0(figuredir,"pca1-15_heatmap_QC.png"), bg = "transparent")
 p <- DimHeatmap(sc, dims = 1:15, cells = 500, balanced = TRUE) # for multiple PCs
@@ -42,5 +43,7 @@ p <- ElbowPlot(sc)
 print(p)
 dev.off()
 
-opfn <- paste0(outFolder,"seuratObj-afterPCA.",Sys.Date(),".rds") 
+sc <- RunHarmony(sc,c("Library"),reduction="pca")
+
+opfn <- paste0(outFolder,"seuratObj-afterharmony.",Sys.Date(),".rds") 
 write_rds(sc, opfn)
