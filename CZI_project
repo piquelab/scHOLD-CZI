@@ -1,0 +1,80 @@
+#start
+High stress will lead to inflammation which will then subsequently lead to increased risk for cardiovascular disease. We therefore gathered single cell rna-seq/atac-seq data from PBMCs from individuals 50+ years old. These were collected in batches of 12, with 4 batches total. The cells were either untreated, stimulated with LPS, or stimulated with LPS and treated with dexamethasone. 
+
+Note:Some batches do not contain all conditions. One batch does not contain atac-seq (failed).
+
+Questions to answer:
+QC - did the cells respond to LPS, LPS+Dex
+QC - Check marker genes expression with cell labels
+What genes are differentially expressed
+Are any genes associated with covariates such as age/sex
+Do any of the age associations change with LPS
+are any genes associated with psychosocial variables
+are any genes associated with cardiovascular variables
+Do any associations correlate with clinical outcomes
+
+Already completed:
+fastq alignment, etc.
+The cell-ranger output aligned to hg38: /rs/rs_grp_schold/CZI/RNA/counts_cellranger_hg38
+demuxlet: /rs/rs_grp_schold/CZI/RNA/counts_cellranger_hg38/demuxlet
+kallisto bustools kb output using the nascent workflow: /rs/rs_grp_schold/CZI/RNA/counts_kallisto/nascent/
+
+Steps to complete:
+Filter out doublets, bad ind match, high mitochondria (scripts in github)
+Harmony
+Pseudobulk r (script exists) for deseq
+deseq
+
+
+```{bash, engine.opts='-l'}
+
+screen
+#if running 1_demux.R or 1b_demux_anal3-AR.R; 32G. merge_kallisto needs more (64); 2a cellranger needs more than 150
+srun -q primary -n 10 -N 1-1 --mem=200G -t 4:00:00 -J $label --pty bash #16G was too little mem, 4 hours randomly selected - can change this variable
+module load r/4.2.0
+#module load gnu7/7.3.0 mpich/3.2.1 r/4.2.0 #one job instance required all this, not sure why
+
+#these arguments need to be input After getting interactive node - they are removed upon instance
+analysis=/rs/rs_grp_schold/CZI/RNA/analysis/
+basefolder=/rs/rs_grp_schold/CZI/RNA/counts_cellranger_hg38/demuxlet/demuxlet/
+samples=CZ1_group.txt
+label=CZ1
+cov_file=/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_02_16_2024.txt
+
+#mkdir $analysis
+cd $analysis
+
+#CZ1 group file labels
+cat > CZ1_group.txt
+HOLD1-RNA-CTRL
+HOLD1-RNA-LPS
+HOLD2-RNA-CTRL
+HOLD2-RNA-LPS
+HOLD3-RNA-CTRL
+HOLD3-RNA-LPS
+HOLD7-RNA-CTRL
+HOLD7-RNA-LPS
+ctrl-c
+
+#need to be on node to run
+Rscript src/1_demux.R $analysis $basefolder $samples
+
+Rscript src/1b_demux_anal3-AR.R $analysis $cov_file $samples
+```
+
+```{r }
+#packages to install
+devtools::install_github("marcalva/diem")
+devtools::install_github("stephenturner/annotables")
+```
+```{bash, engine.opts='-l'}
+
+#process counts from kallisto. This currently is not identifying ANY mt genes which is not good
+Rscript src/2_merge_kallisto_demuxlet_AR.R $analysis $samples
+#process counts from cellranger - this looks good I think, need to check again since first run forgot to subset sample list
+Rscript src/2a_mergeCellRangerAndDemuxlet_AR.R $analysis $samples
+
+#split this from the cellranger script since dims and resolution need to be chosen and entered
+Rscript src/2b_seuratPCA.R $analysis
+#look at PCA and elbowplot to pick dimensions. resolution will need to be set but will need to check umaps to do that in 2c
+Rscript src/2c_seuratclustering.R $analysis 10 0.1
