@@ -39,7 +39,7 @@ readKallisto  <- function (run, prefixFile="cells_x_genes",expPrefix=NULL)
     barcode.loc <- file.path(run, paste0(prefixFile,".barcodes.txt"))
     gene.loc <- file.path(run, paste0(prefixFile,".genes.txt"))
 ##    features.loc <- file.path(run, "features.tsv.gz")
-    matrix.loc <- file.path(run, paste0(prefixFile,".nascent.mtx"))
+    matrix.loc <- file.path(run, paste0(prefixFile,".mature.mtx"))
     if (!file.exists(barcode.loc)) {
         stop("Barcode file missing")
     }
@@ -62,21 +62,20 @@ readKallisto  <- function (run, prefixFile="cells_x_genes",expPrefix=NULL)
 }
 
 args <- commandArgs(trailingOnly = TRUE)
-#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_02_16_2024.txt","CZ1_group.txt") #for testing
+#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","CZ1_group.txt") #for testing
 base <- args[1]
 outFolder=paste0(base,"2b_mergeKallistoAndDemuxlet/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 
 basefolder=gsub("analysis/","counts_kallisto/nascent/",base)
 
-cov_file=args[2]
 # set new output dir for filtered out unmatched figures
 figuredir=paste0(outFolder,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 
 #read in samples file (just list of samples to run, each sample on newline)
-if(!is.na(args[3])){
-samples=read.table(args[3],header=F)
+if(!is.na(args[2])){
+samples=read.table(paste0(base,args[2]),header=F)
 samples$Batch <- sapply(strsplit(samples$V1,"-"),function(y) y[1])
 }
 
@@ -95,7 +94,9 @@ folders <- folders[ind]
 expNames <- expNames[ind]
 names(folders) <- expNames
 expNames <- names(folders)
-
+if(!is.na(args[2])){
+  expNames <- expNames[expNames %in% samples$V1]
+}
 
 ###########################################################
 ### 2, read h5ad data into seurat then merge 39 objects ###
@@ -150,12 +151,38 @@ sc2 <- merge(adata[[1]],adata[-1], add.cell.ids = expNames, project="kall-CZI1")
 opfn <- paste0(outFolder,"seuratObj-merge-all-libs-unlist-with-expNames-cell-id.",Sys.Date(),".rds") 
 write_rds(sc2, opfn)
 
+#opfn_i <- file.info(dir(outFolder, full.names=T, pattern="^seuratObj-merge-all-libs-unlist-with-expNames-cell-id."))
+#opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
+#sc2 <- read_rds(opfn)
+
 ##  
 ###       
 sc2@meta.data$NEW_BARCODE <- colnames(sc2)
 
 #anno <- tibble(rn=rownames(sc2)) %>% mutate(ensgene=gsub("[SU]-|\\.[0-9]*","",rn), uns=grepl("U-",rn)) %>% left_join(grch38)
 #sc2[["percent.mt"]] <- PercentageFeatureSet(sc2, features = anno %>% dplyr::filter(chr=="MT") %>% dplyr::pull(rn) )
+
+
+refFolder="/wsu/home/groups/piquelab/data/refGenome10x/refdata-gex-GRCh38-2020-A/"
+
+cmd <- paste0("cat ",refFolder,"/genes/genes.gtf",
+              " | awk '$3~/gene/'",
+              " | sed 's/gene_id //;s/;.* gene_name /\t/;s/;.*transcript_biotype/\t/;s/;.*//'")
+cat(cmd,"\n")
+aux <- read_tsv(pipe(cmd),col_names = FALSE) %>% mutate(TSS=ifelse(X7=="+",X4,X5)) %>%
+  dplyr::select(Chr=X1,Min=X4,Max=X5,ensgene=X9,TSS,Strand=X7,gene_name=X10) 
+
+anno_i <- data.frame(ensgene=rownames(sc2),rs=rowSums(sc2@assays$RNA@data)) %>% dplyr::filter(rs>0) 
+anno <- merge(anno_i, aux, by="ensgene")
+%>% left_join(aux) %>% dplyr::filter(!is.na(Chr))
+
+table(is.na(anno$Chr))
+table(anno$Chr)
+
+sc <- sc[anno$ensgene,]
+sc[["percent.mt"]] <- PercentageFeatureSet(sc,features=anno[anno$Chr=="chrM",]$ensgene)
+sc[["percent.mt"]] %>% summary()
+
 
 anno <- merge(data.frame(ensgene=rownames(sc2)),geneIDs,by="ensgene",all.x=T)                  
 sc2[["percent.mt"]] <- PercentageFeatureSet(sc2, features = rownames(sc2) %in% geneIDs.mt$ensgene  )
