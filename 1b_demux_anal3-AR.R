@@ -4,11 +4,9 @@ library(parallel)
 library(viridis)
 library(pheatmap)
 
-##library(data.table)
-
 ### 
 args <- commandArgs(trailingOnly = TRUE)
-#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_02_16_2024.txt","CZ1_group.txt") #for testing
+#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_03_04_2024.txt","CZ1_group.txt") #for testing
 outFolder=paste0(args[1],"1_demux_output/")
 cov_file=args[2]
 # set new output dir for filtered out unmatched figures
@@ -28,18 +26,6 @@ opfn <- paste0(outFolder,"1_demux_New.ALL.rds")
 tdemux <- read_rds(opfn)
 
 ###
-demux <- demux%>%
-         mutate(
-                #BEST.GUESS=gsub(",.*", "", BEST.GUESS),
-                #NEXT.GUESS=gsub(",.*", "", NEXT.GUESS),
-                #BATCH=substring(EXP,1,6),
-                BATCH=gsub("-.*", "", EXP),
-                treats=gsub(".*[0-9].{,2}-","",EXP),
-                #chemi=grepl("SCAIP5V3|SCAIP6",BATCH2),
-                #chem=ifelse(chemi,"V3", "V2")
-                ) 
-
-#head(demux)
 
 ##This step not necessary for current data as only control and LPS - may need to uncomment
 # correct the EtOH ETOH discrepency in treat column 
@@ -47,7 +33,7 @@ demux <- demux%>%
 
 # filter 
 aa <- demux %>% dplyr::filter(NUM.READS>10,NUM.SNPS>10) %>%
-  select(NEW_BARCODE,NUM.READS,NUM.SNPS,EXP,BATCH,treats,Sample_ID=SNG.BEST.GUESS) 
+  select(NEW_BARCODE,NUM.READS,NUM.SNPS,EXP,BATCH,treats,Sample_ID) 
 
 # check numbers when grouped by SampleID, treats, Batches, separatly
 xx <- aa %>% group_by(treats) %>% summarize(n=n())
@@ -81,27 +67,25 @@ cell.counts.filt <- cell.counts.filt %>% mutate(ID_BATCH=paste(Sample_ID,BATCH, 
 
 write_tsv(cell.counts.filt,paste0(outFolder,"cell.count.filter.100min.v1.tsv"))
 
+IDmiss <- n100toremove %>% select(comb,n) 
+write.csv(IDmiss, paste0(outFolder,"missing_samples_in_demultiplexing_results_duetoFilter.csv"), row.names=F)
+
 
 ##################################################################
 ############ experimental data sheet to find unmatched ###########
 ##################################################################
 
+cat("using experimental data sheet to find unmatched")
 
 # load experimental data sheet
 #covariate file numbers are in format 01,02,etc which does not match file naming labels of 1,2,etc
 exp <- read.table(cov_file, row.names=NULL,header=T)
 exp$Batch <- gsub("HOLD0","HOLD",exp$Batch)
 if(!is.na(args[3])){
-  exp <- exp %>% filter(Batch %in% samples$Batch)
+  exp <- exp %>% dplyr::filter(Batch %in% samples$Batch)
 }
 dim(exp)
 table(exp$Batch)
-
-# find what IDs are missing from the filtered data
-missing <- setdiff(exp$dbgap.ID, cell.counts.filt$Sample_ID)
-IDmiss <- exp %>% filter(dbgap.ID %in% missing) %>% mutate(Sample_ID=dbgap.ID) %>% select(dbgap.ID, Batch, Sample_ID) 
-print(IDmiss)
-write.csv(IDmiss, paste0(outFolder,"missing_samples_in_demultiplexing_results.csv"), row.names=F)
 
 # merge experimental data and filtered data
 expsub <- exp %>% mutate(Sample_ID=dbgap.ID) %>% select(dbgap.ID, Batch, Sample_ID) #removed Participant.ID as not a variable
@@ -116,13 +100,13 @@ sum(merge$Batch != merge$BATCH)
 
 # samples where IDs dont match
 unmatch_ID <- merge %>%
-  filter(Sample_ID != dbgap.ID)
+  dplyr::filter(Sample_ID != dbgap.ID)
 print(unmatch_ID)
 
 # samples where ID_batch dont m
 
 # samples where demultiplexing BATCH does not match to the experimental batch for a sampleIDs
-unmatch_batch <- merge %>% filter(BATCH != Batch) # -- at least in current data seems to only be instances of NA in exp batch
+unmatch_batch <- merge %>% dplyr::filter(BATCH != Batch) # -- at least in current data seems to only be instances of NA in exp batch
 merge <-  transform(merge, ID_Batch= paste0(dbgap.ID, "_", Batch))# , sep="_" ))
 unmatch_comb <- subset(merge, ID_BATCH != ID_Batch)
 print(unmatch_comb)
@@ -134,12 +118,12 @@ dim(cell.counts.filt)
 unmatch_comb$comb
 
 # how many cells are unmatched
-cell.unm <- cell.counts.filt %>% filter(comb %in% unmatch_comb$comb)
+cell.unm <- cell.counts.filt %>% dplyr::filter(comb %in% unmatch_comb$comb)
 dim(cell.unm)
 sum(cell.unm$n)
 
 # how many cells remain
-rem.unm <- cell.counts.filt %>% filter(!comb %in% unmatch_comb$comb)
+rem.unm <- cell.counts.filt %>% dplyr::filter(!comb %in% unmatch_comb$comb)
 dim(rem.unm)
 sum(rem.unm$n)
 
@@ -261,7 +245,7 @@ aa <- demux %>% dplyr::filter(NUM.READS>10,NUM.SNPS>10) %>%
   select(NEW_BARCODE,NUM.READS,NUM.SNPS,EXP,BATCH,treats,Sample_ID=SNG.BEST.GUESS) 
 
 bb <- aa %>% mutate(comb=paste(EXP, Sample_ID, sep="_"))
-bb <- bb %>% filter(!comb %in% unmatch_comb$comb) %>% filter(!comb %in% n100toremove$comb)
+bb <- bb %>% dplyr::filter(!comb %in% unmatch_comb$comb) %>% dplyr::filter(!comb %in% n100toremove$comb)
 
 dd <- bb %>% group_by(EXP) %>% summarize(n=n()) 
 sum(dd$n)
