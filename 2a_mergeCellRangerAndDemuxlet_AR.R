@@ -192,7 +192,7 @@ print(fig0)
 dev.off()
 
 
-fig0 <- VlnPlot(sc, features = "percent.mt", ncol = 1, group.by='Library',pt.size = FALSE)
+fig0 <- VlnPlot(sc, features = "percent.mt", ncol = 1, group.by='Library',pt.size = FALSE)+ scale_y_continuous(limits = c(0,50))
 png(paste0(figuredir,"Figure0.1_violin_percent_mt.png"), width=4000, height=1000, res=120)
 print(fig0)
 dev.off()
@@ -347,12 +347,10 @@ cat("find matching barcodes demuxlet and the sc object")
 opfn <- paste0(base,"/1_demux_output/1_demux_New.SNG.rds")
 demux <- read_rds(opfn)
 ###
-demux <- demux %>% mutate(BATCH=gsub("-.*", "", EXP), treats=gsub(".*[0-9].{,2}-","",EXP)) 
-head(demux)
 
 # filter 
 demux <- demux %>% dplyr::filter(NUM.READS>10,NUM.SNPS>10) %>%
-  select(NEW_BARCODE,NUM.READS,NUM.SNPS,EXP,BATCH,treats,Sample_ID=SNG.BEST.GUESS) 
+  select(NEW_BARCODE,NUM.READS,NUM.SNPS,EXP,BATCH,treats,Sample_ID) 
 
 demux$NEW_BARCODE = paste0(demux$NEW_BARCODE,"-1")
 
@@ -524,7 +522,13 @@ mean(sc[["nFeature_RNA"]]>200) #
 sc[["nCount_RNA"]] %>% summary()
 mean(sc[["nCount_RNA"]] < 20000) # 
 
-sc <- subset(sc, subset = nFeature_RNA > 200 & percent.mt < 20) #& nFeature_RNA < 20000
+scsub <- subset(sc, subset = percent.mt < 10 & nFeature_RNA > 10000) 
+opfn <- paste0(outFolder,"seuratObj-postmerge-greater10kfeature.",Sys.Date(),".rds") 
+write_rds(scsub,opfn)
+rm(scsub)
+gc()
+
+sc <- subset(sc, subset = nFeature_RNA > 200 & percent.mt < 10) #& nFeature_RNA < 20000
 
 opfn <- paste0(outFolder,"seuratObj-postmerge-after-mt-filtering.",Sys.Date(),".rds") 
 write_rds(sc, opfn)
