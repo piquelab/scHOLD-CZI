@@ -163,26 +163,25 @@ sc2@meta.data$NEW_BARCODE <- colnames(sc2)
 #sc2[["percent.mt"]] <- PercentageFeatureSet(sc2, features = anno %>% dplyr::filter(chr=="MT") %>% dplyr::pull(rn) )
 
 
-refFolder="/wsu/home/groups/piquelab/data/refGenome10x/refdata-gex-GRCh38-2020-A/"
+#refFolder="/wsu/home/groups/piquelab/data/refGenome10x/refdata-gex-GRCh38-2020-A/"
 
-cmd <- paste0("cat ",refFolder,"/genes/genes.gtf",
-              " | awk '$3~/gene/'",
-              " | sed 's/gene_id //;s/;.* gene_name /\t/;s/;.*transcript_biotype/\t/;s/;.*//'")
-cat(cmd,"\n")
-aux <- read_tsv(pipe(cmd),col_names = FALSE) %>% mutate(TSS=ifelse(X7=="+",X4,X5)) %>%
-  dplyr::select(Chr=X1,Min=X4,Max=X5,ensgene=X9,TSS,Strand=X7,gene_name=X10) 
+#cmd <- paste0("cat ",refFolder,"/genes/genes.gtf",
+#              " | awk '$3~/gene/'",
+#              " | sed 's/gene_id //;s/;.* gene_name /\t/;s/;.*transcript_biotype/\t/;s/;.*//'")
+#cat(cmd,"\n")
+#aux <- read_tsv(pipe(cmd),col_names = FALSE) %>% mutate(TSS=ifelse(X7=="+",X4,X5)) %>%
+#  dplyr::select(Chr=X1,Min=X4,Max=X5,ensgene=X9,TSS,Strand=X7,gene_name=X10) 
 
-anno_i <- data.frame(ensgene=rownames(sc2),rs=rowSums(sc2@assays$RNA@data)) %>% dplyr::filter(rs>0) 
-anno <- merge(anno_i, aux, by="ensgene")
-%>% left_join(aux) %>% dplyr::filter(!is.na(Chr))
+#anno_i <- data.frame(ensgene=rownames(sc2),rs=rowSums(sc2@assays$RNA@data)) %>% dplyr::filter(rs>0) 
+#anno <- merge(anno_i, aux, by="ensgene")
+#%>% left_join(aux) %>% dplyr::filter(!is.na(Chr))
 
-table(is.na(anno$Chr))
-table(anno$Chr)
+#table(is.na(anno$Chr))
+#table(anno$Chr)
 
-sc <- sc[anno$ensgene,]
-sc[["percent.mt"]] <- PercentageFeatureSet(sc,features=anno[anno$Chr=="chrM",]$ensgene)
-sc[["percent.mt"]] %>% summary()
-
+#sc <- sc[anno$ensgene,]
+#sc[["percent.mt"]] <- PercentageFeatureSet(sc,features=anno[anno$Chr=="chrM",]$ensgene)
+#sc[["percent.mt"]] %>% summary()
 
 anno <- merge(data.frame(ensgene=rownames(sc2)),geneIDs,by="ensgene",all.x=T)                  
 sc2[["percent.mt"]] <- PercentageFeatureSet(sc2, features = rownames(sc2) %in% geneIDs.mt$ensgene  )
@@ -248,7 +247,7 @@ dd <- dd%>%dplyr::rename(ident=Library)%>%
 
 write.csv(as.data.frame(dd), paste0(outFolder,"raw-stats-kallisto-lib.csv"), row.names=F, quote=FALSE)
 
-fig0 <- VlnPlot(sc, features = "percent.mt", ncol = 1, group.by='Library')
+fig0 <- VlnPlot(sc, features = "percent.mt", ncol = 1, group.by='Library')+ scale_y_continuous(limits = c(0,50))
 png(paste0(figuredir,"Figure0.1_violin_percent_mt.png"), width=4000, height=1000, res=120)
 print(fig0)
 dev.off()
@@ -525,7 +524,7 @@ mean(sc[["percent.mt"]]<20) # 0.9735754
 
 
 # filter out high mitochondrial percentage
-sc <- subset(sc, subset = nFeature_RNA > 200 & percent.mt < 20) #& nFeature_RNA < 20000
+sc <- subset(sc, subset = nFeature_RNA > 200 & percent.mt < 10) #& nFeature_RNA < 20000
 
 dim(sc) #414578
 
