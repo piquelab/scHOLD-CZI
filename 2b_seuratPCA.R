@@ -33,6 +33,7 @@ sc <- ScaleData(sc, features = rownames(sc)) #can regress out highly variable in
 sc <- RunPCA(sc, features = VariableFeatures(object = sc))
 #sc <- RunPCA(sc,pc.genes = sc@var.genes, npcs = 100, verbose = TRUE)
 opfn <- paste0(outFolder,"seuratObj-afterPCA.",Sys.Date(),".rds") 
+write_rds(sc, opfn)
 
 png(width=1000, height=1000, res=120, file=paste0(figuredir,"pca1-15_heatmap_QC.png"), bg = "transparent")
 p <- DimHeatmap(sc, dims = 1:15, cells = 500, balanced = TRUE) # for multiple PCs
