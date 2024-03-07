@@ -39,10 +39,25 @@ analysis=/rs/rs_grp_schold/CZI/RNA/analysis/
 basefolder=/rs/rs_grp_schold/CZI/RNA/counts_cellranger_hg38/demuxlet/demuxlet/
 samples=CZ1_group.txt
 label=CZ1
-cov_file=/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_02_16_2024.txt
+cov_file=/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_03_04_2024.txt
 
 #mkdir $analysis
 cd $analysis
+
+```{r }
+library(data.table)
+cov <- fread("/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_02_16_2024.txt") #cov file has a few missing/swapped individuals to fix
+missing <- c("HO-088","HO-189")
+unknown <- c("HO-034","HO-031")
+replacing <- c("HO-070","HO-072")
+#HO-187 #duplicated in HOLD1 and HOLD14- keep for now since not processing HOLD14
+#HO-070 #not intended for any batches - create entry for HOLD01
+cov <- rbind(cov, data.frame(dbgap.ID="HO-070",Batch="HOLD01", age="NA", sex="NA", sex_alph="NA", PFAS="NA", czi_exp="CZI1"))
+#HO-072 #intended for HOLD10, actual batch HOLD07. need to fix entry
+cov=transform(cov, Batch=ifelse(dbgap.ID=="HO-072", "HOLD07",Batch),czi_exp=ifelse(dbgap.ID=="HO-072", "CZI1",czi_exp))
+cov_sub <- cov[!cov$dbgap.ID %in% c(missing,unknown),]
+fwrite(cov_sub, quote=F , row.names=F , sep='\t' , file="/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_03_04_2024.txt")
+```
 
 #CZ1 group file labels
 cat > CZ1_group.txt
@@ -57,7 +72,7 @@ HOLD7-RNA-LPS
 ctrl-c
 
 #need to be on node to run
-Rscript src/1_demux.R $analysis $basefolder $samples
+Rscript src/1_demux.R $analysis $basefolder $cov_file $samples
 
 Rscript src/1b_demux_anal3-AR.R $analysis $cov_file $samples
 ```
@@ -77,4 +92,17 @@ Rscript src/2a_mergeCellRangerAndDemuxlet_AR.R $analysis $samples
 #split this from the cellranger script since dims and resolution need to be chosen and entered
 Rscript src/2b_seuratPCA.R $analysis
 #look at PCA and elbowplot to pick dimensions. resolution will need to be set but will need to check umaps to do that in 2c
-Rscript src/2c_seuratclustering.R $analysis 10 0.1
+Rscript src/2c_seuratumap.R $analysis 10
+#look at umap cluster labels to select resolution
+for res in 0.1 0.15 0.2 0.3 0.4 0.5; do
+echo running $res
+Rscript src/2d_seuratclustering.R $analysis $res
+done
+
+#run also preharmony to see if effects are removed by harmony
+Rscript src/2e_seuratpreharmony_umap.R $analysis 10
+for res in 0.1 0.15 0.2 0.3 0.4 0.5; do
+echo running $res
+Rscript src/2f_seuratpreharmony_clustering.R $analysis $res
+done
+
