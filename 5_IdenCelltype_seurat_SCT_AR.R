@@ -16,7 +16,7 @@ library(Rcpp)
 library("BiocParallel")
 ##
 library(Seurat)
-library(SeuratDisk)
+library(SeuratDisk) #not installing
 library(harmony)
 library(annotables)
 library(biobroom)
@@ -45,20 +45,23 @@ library(readr)
 #####################################################################
 
 
-setwd("/wsu/home/groups/piquelab/SCAIP_2022/Ali/scALOFT/")
-
-future::plan(strategy = 'multicore', workers = 16)
-options(future.globals.maxSize = 30 * 1024 ^ 3)
-
 ###  
-outdir <- "./5b_IdenCelltype_output_renamed/"
-if (!file.exists(outdir)) dir.create(outdir, showWarnings=F) 
+args <- commandArgs(trailingOnly = TRUE)
+#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/",0.3) #for testing
+base <- args[1]
+outdir=paste0(base,"5b_IdenCelltype_output_renamed/")
+if (!file.exists(outdir)) dir.create(outdir, showWarnings=F)
+resset <- as.numeric(args[2])
 
+basefolder=gsub("analysis/","counts_cellranger_hg38/",base)
+
+# set new output dir for filtered out unmatched figures
+figuredir=paste0(outdir,"figures/")
+if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 
 future::plan(strategy="multicore", workers=10)
 options(future.globals.maxSize=10*20124^3)
 plan()
-
 
 
 ##################### 
@@ -66,12 +69,73 @@ plan()
 ##################### 
 
 #### run sc transform on the count data prior to normalization
-#sc <- read_rds("/wsu/home/groups/piquelab/SCAIP_2022/Ali/scALOFT/2_mergeCellRangerAndDemuxlet/seuratObj-merge.md.post-merge-demux.2023-06-23.rds")
-#head(sc@meta.data)
 
 #load the renamed seurat object, prior to norm, run sct on it.
-sc <- read_rds("/wsu/home/groups/piquelab/SCAIP_2022/Ali/scALOFT/2.1_mergeCellRangerAndDemuxlet_renamed/seuratObj-merge.md.post-merge-demux.2023-07-25.rds")
-head(sc@meta.data)
+opfn_i <- file.info(dir(paste0(base,"2.1_mergeCellRangerAndDemuxlet_renamed/"), full.names=T, pattern="^seuratObj-merge.md.post-merge-demux."))
+opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
+sc <- read_rds(opfn)
+
+#######alt cell typing 
+opfn_i <- file.info(dir(paste0(base,"2.1_mergeCellRangerAndDemuxlet_renamed/"), full.names=T, pattern=paste0("^seuratObj-preharmony-post-clustering-res",resset)))
+opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
+sc <- read_rds(opfn)
+
+library(HGNChelper)
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
+# load cell type annotation function
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/sctype_score_.R")
+# DB file
+db_ = "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx";
+tissue = "Immune system" # e.g. Immune system,Pancreas,Liver,Eye,Kidney,Brain,Lung,Adrenal,Heart,Intestine,Muscle,Placenta,Spleen,Stomach,Thymus 
+
+# prepare gene sets
+gs_list = gene_sets_prepare(db_, tissue)
+
+  es.max = sctype_score(scRNAseqData = sc[["RNA"]]@scale.data, scaled = TRUE, 
+                      gs = gs_list$gs_positive, gs2 = gs_list$gs_negative) 
+  cL_resutls = do.call("rbind", lapply(unique(sc@meta.data$seurat_clusters), function(cl){
+    es.max.cl = sort(rowSums(es.max[ ,rownames(sc@meta.data[sc@meta.data$seurat_clusters==cl, ])]), decreasing = !0)
+    head(data.frame(cluster = cl, type = names(es.max.cl), scores = es.max.cl, ncells = sum(sc@meta.data$seurat_clusters==cl)), 10)
+  }))
+  sctype_scores = cL_resutls %>% group_by(cluster) %>% top_n(n = 1, wt = scores)  
+  sctype_scores$type[as.numeric(as.character(sctype_scores$scores)) < sctype_scores$ncells/4] = "Unknown"
+  sc@meta.data$customclassif = ""
+  for(j in unique(sctype_scores$cluster)){
+  cl_type = sctype_scores[sctype_scores$cluster==j,]; 
+  sc@meta.data$customclassif[sc@meta.data$seurat_clusters == j] = as.character(cl_type$type[1])
+  }
+  png(width = 8, height = 8, file=paste0(figuredir,"preharmony_umap_QC_wSCtypecelltype.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 1200)
+  p <- DimPlot(sc, reduction = "umap", label = TRUE, repel=TRUE, group.by = 'customclassif', pt.size = .1)
+  print(p)
+  dev.off()
+opfn <- paste0(outdir,"seuratObj-.preharmony-sctype-",Sys.Date(),".rds")
+write_rds(sc, opfn)
+
+opfn_i <- file.info(dir(paste0(base,"2.1_mergeCellRangerAndDemuxlet_renamed/"), full.names=T, pattern=paste0("^seuratObj-post-clustering-res",resset)))
+opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
+sc <- read_rds(opfn)
+
+  cL_resutls = do.call("rbind", lapply(unique(sc@meta.data$seurat_clusters), function(cl){
+    es.max.cl = sort(rowSums(es.max[ ,rownames(sc@meta.data[sc@meta.data$seurat_clusters==cl, ])]), decreasing = !0)
+    head(data.frame(cluster = cl, type = names(es.max.cl), scores = es.max.cl, ncells = sum(sc@meta.data$seurat_clusters==cl)), 10)
+  }))
+  sctype_scores = cL_resutls %>% group_by(cluster) %>% top_n(n = 1, wt = scores)  
+  sctype_scores$type[as.numeric(as.character(sctype_scores$scores)) < sctype_scores$ncells/4] = "Unknown"
+  sc@meta.data$customclassif = ""
+  for(j in unique(sctype_scores$cluster)){
+  cl_type = sctype_scores[sctype_scores$cluster==j,]; 
+  sc@meta.data$customclassif[sc@meta.data$seurat_clusters == j] = as.character(cl_type$type[1])
+  }
+  png(width = 9, height = 8, file=paste0(figuredir,"harmony_umap_QC_wSCtypecelltype.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 1200)
+  p <- DimPlot(sc, reduction = "umap", label = TRUE, repel=TRUE, group.by = 'customclassif', pt.size = .1)
+  print(p)
+  dev.off()
+opfn <- paste0(outdir,"seuratObj-.harmony-sctype-",Sys.Date(),".rds")
+write_rds(sc, opfn)
+
+#################### previous cell typing ##############
 
 # store mitochondrial percentage in object meta data
 sc <- PercentageFeatureSet(sc, pattern = "^MT-", col.name = "percent.mt")
@@ -98,13 +162,8 @@ anchors <- FindTransferAnchors(reference=ref, query=sc,
 #found 24 anchors
 
 ### write the anchors as an object
-opfn <- paste0(outdir,"seuratObj-anchors-normSCT-supervPCA-50dim-24kAnchors",Sys.Date(),".rds")
+opfn <- paste0(outdir,"seuratObj-anchors-normSCT-supervPCA-50dim-Anchors",Sys.Date(),".rds")
 write_rds(anchors, opfn)
-
-
-## write the sc object
-opfn <- paste0(outdir,"seuratObj-sc-transformed-mtregressed-3k-features-5kcell-",Sys.Date(),".rds")
-write_rds(sc, opfn)
 
 
 ## pred <- TransferData(anchorset=anchors, refdata=ref$celltype.l1, dims=1:30)
@@ -138,7 +197,7 @@ write_rds(sc, opfn)
 
 
 
-fname=paste0(outdir,"Figure1.1_umap_cellTypes_by_ref_",Sys.Date(),".png");
+fname=paste0(figuredir,"Figure1.1_umap_cellTypes_by_ref_",Sys.Date(),".png");
 png(fname,width=7000,height=5000, res=240)
 p1 = DimPlot(sc, reduction = "ref.umap", group.by = "predicted.celltype.l1", label = TRUE, label.size = 10, repel = TRUE) + NoLegend()
 p2 = DimPlot(sc, reduction = "ref.umap", group.by = "predicted.celltype.l2", label = TRUE, label.size = 10,repel = TRUE) + NoLegend()
@@ -147,7 +206,7 @@ print(p)
 dev.off()
 
 
-fname=paste0(outdir,"Figure1.1_umap_cellTypes_by_ref_",Sys.Date(),".pdf");
+fname=paste0(figuredir,"Figure1.1_umap_cellTypes_by_ref_",Sys.Date(),".pdf");
 pdf(fname,width = 20, height = 15)
 p1 = DimPlot(sc, reduction = "ref.umap", group.by = "predicted.celltype.l1", label = TRUE, label.size = 10, repel = TRUE) + NoLegend()
 p2 = DimPlot(sc, reduction = "ref.umap", group.by = "predicted.celltype.l2", label = TRUE, label.size = 10,repel = TRUE) + NoLegend()
@@ -162,7 +221,7 @@ dev.off()
 
 
 # make initial umap group by 
-fname=paste0(outdir,"Figure1.2_umap_cellTypes_by_ref_granLevel1-8cell-types",Sys.Date(),".png");
+fname=paste0(figuredir,"Figure1.2_umap_cellTypes_by_ref_granLevel1-8cell-types",Sys.Date(),".png");
 png(fname,width=3000,height=3000, res=240)
 fig1 <- DimPlot(sc, reduction = "ref.umap", label=T, group.by="predicted.celltype.l1", label.size=10, raster=F, pt.size = 0.25)+ #, )+ #, , pt.size = 0.5, cols=col0)+
         theme_bw()+
@@ -249,7 +308,7 @@ refquery[["spca"]] <- merge(ref[["spca"]], sc[["ref.spca"]])
 refquery <- RunUMAP(refquery, reduction = 'spca', dims = 1:50)
 
 refquery$dataset <- "NA"
-refquery$dataset[refquery$id=="query"] <- "SCAIP7-18"
+refquery$dataset[refquery$id=="query"] <- "CZI1"
 refquery$dataset[refquery$id=="reference"] <- "PBMC Ref"
 
 table(refquery$dataset)
@@ -278,7 +337,7 @@ dev.off()
 
 
 # write the merged ref and query: 
-opfn <- paste0(outdir,"seuratObj-combined-refCITE-querySCAIP7-18-",Sys.Date(),".rds")
+opfn <- paste0(outdir,"seuratObj-combined-refCITE-queryCZI1-",Sys.Date(),".rds")
 write_rds(refquery, opfn)
 
 
@@ -291,8 +350,8 @@ write_rds(refquery, opfn)
 outdir <- "./5b_IdenCelltype_output_renamed/"
 
 ## write the sc object, after annotating
-
-opfn <- paste0(outdir,"seuratObj-sc-annotated-multimodal-ref-mapping-2023-07-28.rds")
+opfn_i <- file.info(dir(outdir, full.names=T, pattern="^seuratObj-sc-annotated-multimodal-ref-mapping"))
+opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
 sc <- read_rds(opfn)
 
 
@@ -300,16 +359,17 @@ sc <- read_rds(opfn)
 ## read the sc object
 outFolder <- "./2.1_mergeCellRangerAndDemuxlet_renamed/"
 
-opfn <- paste0(outFolder,"seuratObj-post-clustering-res0.5.2023-07-27.rds")
+opfn_i <- file.info(dir(outFolder, full.names=T, pattern=paste0("^seuratObj-post-clustering-res",resset)))
+opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
 sccr <- read_rds(opfn)
 
 
 # transfer the annotations from the sc multimodel reference mapped seurat object to the celllranger seurat object with clusters
 
 length(intersect(sc@meta.data$NEW_BARCODE, sccr@meta.data$NEW_BARCODE))
-#567386
+#160083
 length(setdiff(sc@meta.data$NEW_BARCODE, sccr@meta.data$NEW_BARCODE))
-#3041 # this is the difference in the numb. cells of the two objects. Most likley due to the SCT filtering, less of the cells were removed in MRM object
+#2110 # this is the difference in the numb. cells of the two objects. Most likley due to the SCT filtering, less of the cells were removed in MRM object
 
 
 sc2 <- sccr
@@ -324,7 +384,7 @@ rownames(sc2@meta.data) <- sc2@meta.data$NEW_BARCODE
 ## make UMAP for the transfered annotation 
 
 # both levels together
-fname=paste0(outdir,"Figure4.1_umap_cellTypes_by_ref_",Sys.Date(),".png");
+fname=paste0(figuredir,"Figure4.1_umap_cellTypes_by_ref_",Sys.Date(),".png");
 png(fname,width=7000,height=5000, res=240)
 p1 = DimPlot(sc2, reduction = "umap", group.by = "predicted.celltype.l1", label = TRUE, label.size = 10, repel = TRUE) + NoLegend()
 p2 = DimPlot(sc2, reduction = "umap", group.by = "predicted.celltype.l2", label = TRUE, label.size = 10,repel = TRUE) + NoLegend()
@@ -334,7 +394,7 @@ dev.off()
 
 
 # make initial umap group by 
-fname=paste0(outdir,"Figure4.2_umap_cellTypes_by_ref_granLevel1-8cell-types",Sys.Date(),".png");
+fname=paste0(figuredir,"Figure4.2_umap_cellTypes_by_ref_granLevel1-8cell-types",Sys.Date(),".png");
 png(fname,width=3000,height=3000, res=240)
 fig1 <- DimPlot(sc2, reduction = "umap", label=T, group.by="predicted.celltype.l1", label.size=10, raster=F, pt.size = 0.25)+ #, )+ #, , pt.size = 0.5, cols=col0)+
         theme_bw()+
@@ -352,6 +412,9 @@ fig1 <- DimPlot(sc2, reduction = "umap", label=T, group.by="predicted.celltype.l
               panel.border=element_rect(colour="black", fill=NA))
 print(fig1)
 dev.off()
+
+########################## STOPPED HERE ###########################3
+##################################################################
 
 
 library(viridis)
