@@ -29,9 +29,13 @@ deseq
 ```{bash, engine.opts='-l'}
 
 screen
-#if running 1_demux.R or 1b_demux_anal3-AR.R; 32G. merge_kallisto needs more (64); 2a cellranger needs more than 150
-srun -q primary -n 10 -N 1-1 --mem=200G -t 4:00:00 -J $label --pty bash #16G was too little mem, 4 hours randomly selected - can change this variable
-module load r/4.2.0
+#if running 1_demux.R or 1b_demux_anal3-AR.R; 32G. merge_kallisto needs more (64); 2a cellranger needs more than 150; sctransform needs more than 200
+srun -q primary -n 10 -N 1-1 --mem=225G -t 10:00:00 --pty bash #-x hax\[0-13\]
+#16G was too little mem, 4 hours randomly selected - can change this variable
+#some nodes have issues (ie. hax1 and hax2 were not loading ggplot2)
+#export MODULEPATH=$MODULEPATH:/wsu/el7/groups/piquelab/modulefiles
+module unload gnu7/7.3.0
+module load R/test_4.3.2 #old: module load r/4.2.0
 #module load gnu7/7.3.0 mpich/3.2.1 r/4.2.0 #one job instance required all this, not sure why
 
 #these arguments need to be input After getting interactive node - they are removed upon instance
@@ -81,6 +85,13 @@ Rscript src/1b_demux_anal3-AR.R $analysis $cov_file $samples
 #packages to install
 devtools::install_github("marcalva/diem")
 devtools::install_github("stephenturner/annotables")
+install.packages("HGNChelper", repos='http://cran.us.r-project.org')
+install.packages("ggcorrplot", repos='http://cran.us.r-project.org')
+install.packages("msigdbr", repos='http://cran.us.r-project.org')
+install.packages("splitstackshape", repos='http://cran.us.r-project.org')
+remotes::install_github('mojaveazure/ggseurat')
+BiocManager::install('glmGamPoi') #for sctransform faster implementation
+
 ```
 ```{bash, engine.opts='-l'}
 
@@ -105,4 +116,26 @@ for res in 0.1 0.15 0.2 0.3 0.4 0.5; do
 echo running $res
 Rscript src/2f_seuratpreharmony_clustering.R $analysis $res
 done
+
+Rscript src/5_IdenCelltype_seurat_SCT_AR.R $analysis #this in progress. completed alt sctype assignment within R
+
+#to run genotype PC
+#This is the full genotype file, it is only filtered for alleles MAF>0
+#/rs/rs_grp_schold/reimpute/ref.ac1.vcf.gz
+
+cp /nfs/rprdata/julong/sc_brains/plink/run_pca.sh src
+#updated the script to use input vcf argument and specify output folder from argument
+sbatch --job-name=plinkgenoPC --output="job_readouts/plinkgenoPC.log" -q primary -n 5 -N 1-1 --mem=50G -t 2:00:00 --export=VCF="/rs/rs_grp_schold/reimpute/ref.ac1.vcf.gz",OUT_FOLDER=$analysis"genotypePC/" src/run_pca.sh 
+#squeue -u fh8591 #check to see when job finishes
+
+Rscript src/plink_to_PC.R $analysis $cov_file $samples
+
+#individuals to remove (ie. here removing 2 individuals that were outliers in genotype pc plus related)
+cat > CZI1_removeind.txt
+HO-110
+HO-124
+HO-114
+
+#DESeq analysis for LPS vs CTRL plus separate runs (LPS,CTRL) for age and sex, plus interaction term runs
+Rscript src/00-DESeq.R $analysis #$cov_file $samples
 
