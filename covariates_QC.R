@@ -48,18 +48,27 @@ is_wholenumber <- function(x, tol = .Machine$double.eps^0.5) {
 }
 
 CZI1_table <- fread(cov_expected_file)
-min <- list()
-max <- list()
+min_CZI1 <- list()
+max_CZI1 <- list()
+missing_CZI1 <- list()
+min_all <- list()
+max_all <- list()
+missing_all <- list()
+
 for (i in col_names){
-	min[[i]] <- round(min(cov_sub[[i]],na.rm=T),3)
-	max[[i]] <- round(max(cov_sub[[i]],na.rm=T),3)
+	min_CZI1[[i]] <- round(min(cov_sub[[i]],na.rm=T),3)
+	max_CZI1[[i]] <- round(max(cov_sub[[i]],na.rm=T),3)
+	missing_CZI1[[i]] <- length(which(is.na(cov_sub[[i]])))
+	min_all[[i]] <- round(min(cov[[i]],na.rm=T),3)
+	max_all[[i]] <- round(max(cov[[i]],na.rm=T),3)
+	missing_all[[i]] <- length(which(is.na(cov[[i]])))
 }
-df <- cbind(ldply(min, data.frame),ldply(max, data.frame)[,2])
-colnames(df) <- c("variable","data_min","data_max")
+df <- cbind(ldply(min_CZI1, data.frame),ldply(max_CZI1, data.frame)[,2],ldply(missing_CZI1, data.frame)[,2],ldply(min_all, data.frame)[,2],ldply(max_all, data.frame)[,2],ldply(missing_all, data.frame)[,2])
+colnames(df) <- c("variable","data_min_CZI1","data_max_CZI1","missing_CZI1","data_min_all","data_max_all","missing_all")
 
 CZI1_table_c <- merge(CZI1_table,df,by="variable")
 
-fwrite(CZI1_table_c, sep='\t', quote=F, row.names=F, col.names=T, paste0(base,"CZI1_range.txt"),append=T)
+fwrite(CZI1_table_c, sep='\t', quote=F, row.names=F, col.names=T, paste0(base,"CZI1_range.txt"))
 
 #################################3
 ####################################
