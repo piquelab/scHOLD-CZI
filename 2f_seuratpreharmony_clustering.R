@@ -5,9 +5,12 @@ library(future)
 library(tidyverse)
 
 args <- commandArgs(trailingOnly = TRUE)
-#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/") #for testing
+#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","ALL","fastdemux",0.3) #for testing
 base <- args[1]
-outFolder=paste0(base,"2.1_mergeCellRangerAndDemuxlet_renamed/")
+project <- args[2]
+method <- args[3]
+
+outFolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 
 basefolder=gsub("analysis/","counts_cellranger_hg38/",base)
@@ -19,23 +22,23 @@ if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 future::plan(strategy = 'multicore', workers = 10)
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
-resset <- as.numeric(args[2])
+resset <- as.numeric(args[4])
 
 #################
 
-opfn_i <- file.info(dir(outFolder, full.names=T, pattern="^seuratObj-preharmony-post-umap."))
+opfn_i <- file.info(dir(outFolder, full.names=T, pattern=paste0(project,".seuratObj-preharmony-post-umap.")))
 opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
 sc <- read_rds(opfn)
 
 sc <- sc %>% FindClusters(resolution = resset) %>% 
     identity()
 
-opfn <- paste0(outFolder,"seuratObj-preharmony-post-clustering-res",resset,".",Sys.Date(),".rds")
+opfn <- paste0(outFolder,paste0(project,".seuratObj-preharmony-post-clustering-res",resset,".",Sys.Date(),".rds"))
 write_rds(sc, opfn)
 
 #preharmony umap plotting. Done in case harmony removes effects of interest
 # make initial umap group by cluster
-fname=paste0(figuredir,"Figure5.4_UMAP_preharmony-res",resset,"_group_seurat_cluster_with_names",Sys.Date(),".png");
+fname=paste0(figuredir,project,".Figure5.4_UMAP_preharmony-res",resset,"_group_seurat_cluster_with_names",Sys.Date(),".png");
 png(fname,width=5000,height=5000, res=240)
 fig1 <- DimPlot(sc, reduction = "umap", label=T, group.by="seurat_clusters", label.size=15,pt.size=0.5)+ #, cols=col0)+
   theme(legend.position = "none",legend.key.size = unit(50,"point"),panel.background = element_rect(fill="white",colour = "black"),
@@ -46,7 +49,7 @@ print(fig1)
 dev.off()
 
 # make initial umap group by treatment
-fname=paste0(figuredir,"Figure5.1_UMAP_preharmony-res",resset,"_group_treatment",Sys.Date(),".png");
+fname=paste0(figuredir,project,".Figure5.1_UMAP_preharmony-res",resset,"_group_treatment",Sys.Date(),".png");
 png(fname,width=5000,height=5000, res=240)
 fig1 <- DimPlot(sc, reduction = "umap", group.by = "treats", pt.size = .5)+
         ggtitle("")+
@@ -58,7 +61,7 @@ print(fig1)
 dev.off()
 
 # make initial umap group by batch
-fname=paste0(figuredir,"Figure5.2_UMAP_preharmony-res",resset,"_group_batch",Sys.Date(),".png");
+fname=paste0(figuredir,project,".Figure5.2_UMAP_preharmony-res",resset,"_group_batch",Sys.Date(),".png");
 png(fname,width=5000,height=5000, res=240)
 fig1 <- DimPlot(sc, reduction = "umap", label=F, group.by="BATCH",pt.size=0.5)+ #, cols=col0)+
   theme(legend.key.size = unit(50,"point"),panel.background = element_rect(fill="white",colour = "black"),
@@ -69,7 +72,7 @@ print(fig1)
 dev.off()
 
 # make initial umap group by library
-fname=paste0(figuredir,"Figure5.3_UMAP_preharmony-res",resset,"_group_Library",Sys.Date(),".png");
+fname=paste0(figuredir,project,".Figure5.3_UMAP_preharmony-res",resset,"_group_Library",Sys.Date(),".png");
 png(fname,width=5000,height=4500, res=240)
 fig1 <- DimPlot(sc, reduction = "umap", label=F, group.by="Library",pt.size=0.5)+ #, cols=col0)+
   theme(legend.key.size = unit(50,"point"),panel.background = element_rect(fill="white",colour = "black"),
