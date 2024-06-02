@@ -62,23 +62,38 @@ readKallisto  <- function (run, prefixFile="cells_x_genes",expPrefix=NULL)
 }
 
 args <- commandArgs(trailingOnly = TRUE)
-#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","CZ1_group.txt") #for testing
+#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","alternative","CZI2_group.txt") #for testing
+cat("folder= ",args[1],"\n method= ",args[2],"\n")
 base <- args[1]
-outFolder=paste0(base,"2b_mergeKallistoAndDemuxlet/")
-if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
-
+method=args[2]
 basefolder=gsub("analysis/","counts_kallisto/nascent/",base)
+
+#read in samples file (just list of samples to run, each sample on newline)
+if(!is.na(args[3])){
+samples=read.table(paste0(base,args[3]),header=F)
+samples$Batch <- sapply(strsplit(samples$V1,"-"),function(y) y[1])
+project=sapply(strsplit(args[3],"_"),function(y)y[1])
+cat("samplefile= ",args[3])
+}else{
+   project="ALL"
+}
+
+if(args[2]=="demux"){
+   outFolder=paste0(base,"2b_mergeKallistoAnd",method,"/")
+   demux_in <- paste0(base,"1_demux_output/")
+   opfn <- paste0(demux_in,project,".1_demux_filt.SNG.rds")
+   demux <- read_rds(opfn)
+} else {
+   outFolder=paste0(base,"2b_mergeKallistoAnd",method,"/")
+   demux_in <- paste0(base,"1_demux_alt_output/")
+   opfn <- paste0(demux_in,project,".1_demux_alt_filt.SNG.rds")
+   demux <- read_rds(opfn)   
+}
+if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 
 # set new output dir for filtered out unmatched figures
 figuredir=paste0(outFolder,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
-
-#read in samples file (just list of samples to run, each sample on newline)
-if(!is.na(args[2])){
-samples=read.table(paste0(base,args[2]),header=F)
-samples$Batch <- sapply(strsplit(samples$V1,"-"),function(y) y[1])
-}
-
 
 ## read data including barcodes.txt, genes.txt and mtx
 ## 2_merge_kb2 for downstream analysis
@@ -94,7 +109,7 @@ folders <- folders[ind]
 expNames <- expNames[ind]
 names(folders) <- expNames
 expNames <- names(folders)
-if(!is.na(args[2])){
+if(!is.na(args[3])){
   expNames <- expNames[expNames %in% samples$V1]
 }
 
@@ -110,7 +125,7 @@ if(!is.na(args[2])){
 
 adata <- future_map(expNames,function(ii){
     ##
-    #ii <- expNames[1]
+    #ii <- expNames[2]
     message(paste0("running ", ii))
     expPrefix = ii;
     cat("#Loading ",paste0(folders[ii], "/counts_unfiltered/"), " ...")    
@@ -119,17 +134,10 @@ adata <- future_map(expNames,function(ii){
     ##
     scs <- colSums(sFull)
     cat(dim(sFull),"\n")
-    sel <- sFull
     count0 <- sFull
-    cat(dim(sFull),"\n")
     rownames(count0) <- gsub("[SU]-|\\.[0-9]*","",rownames(count0))
-
-    #anno <- merge(data.frame(ensgene=rownames(count0)),geneIDs,by="ensgene",all.x=T)                  
-    #metadata <- anno[match(rownames(count0), anno$ensgene),]
-    #metadata <- transform(metadata, symbol=ifelse(symbol=="" | is.na(symbol),ensgene,symbol))
-    #rownames(count0) <- metadata$symbol
-
-    sc <- CreateSeuratObject(counts = count0, project = "kallisto-CZI1",min.cells = 3, min.features=200)#
+    #table(rownames(count0) %in% geneIDs.mt$ensgene))
+    sc <- CreateSeuratObject(counts = count0, project = paste0("kallisto-",project),min.cells = 3, min.features=200)#
     cat(dim(sc),"\n")
     sc@meta.data$Library<-rep(ii,nrow(sc@meta.data))
     #sc
@@ -138,8 +146,7 @@ adata <- future_map(expNames,function(ii){
     sc
 })
 
-
-opfn <- paste0(outFolder,"seuratObj-merge-all.",Sys.Date(),".rds") 
+opfn <- paste0(outFolder,project,".seuratObj-merge-all.",Sys.Date(),".rds") 
 write_rds(adata, opfn)
 
 # read the kallisto seurat obj
@@ -147,8 +154,8 @@ write_rds(adata, opfn)
 #opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
 #adata <- read_rds(opfn)
 
-sc2 <- merge(adata[[1]],adata[-1], add.cell.ids = expNames, project="kall-CZI1")
-opfn <- paste0(outFolder,"seuratObj-merge-all-libs-unlist-with-expNames-cell-id.",Sys.Date(),".rds") 
+sc2 <- merge(adata[[1]],adata[-1], add.cell.ids = expNames, project=paste0("kall-",project))
+opfn <- paste0(outFolder,project,".seuratObj-merge-all-libs-unlist-with-expNames-cell-id.",Sys.Date(),".rds") 
 write_rds(sc2, opfn)
 
 #opfn_i <- file.info(dir(outFolder, full.names=T, pattern="^seuratObj-merge-all-libs-unlist-with-expNames-cell-id."))
@@ -184,9 +191,9 @@ sc2@meta.data$NEW_BARCODE <- colnames(sc2)
 #sc[["percent.mt"]] %>% summary()
 
 anno <- merge(data.frame(ensgene=rownames(sc2)),geneIDs,by="ensgene",all.x=T)                  
-sc2[["percent.mt"]] <- PercentageFeatureSet(sc2, features = rownames(sc2) %in% geneIDs.mt$ensgene  )
+tryCatch(sc2[["percent.mt"]] <- PercentageFeatureSet(sc2, features = rownames(sc2) %in% geneIDs.mt$ensgene ),error=function(x) sc2[["percent.mt"]] <- 0)
 
-opfn <- paste0(outFolder,"1_Seurat_kb.",Sys.Date(),".rds") 
+opfn <- paste0(outFolder,project,".1_Seurat_kb.",Sys.Date(),".rds") 
 write_rds(sc2, opfn)
 
 ### 1_Seurat_kb.rds, unfiltered data and removing diem ## default data, 301,637 barcodes
@@ -245,23 +252,23 @@ dd <- meta%>%group_by(Library)%>%
 dd <- dd%>%dplyr::rename(ident=Library)%>%
            mutate(batch=gsub("-.*","",ident))
 
-write.csv(as.data.frame(dd), paste0(outFolder,"raw-stats-kallisto-lib.csv"), row.names=F, quote=FALSE)
+write.csv(as.data.frame(dd), paste0(outFolder,project,".raw-stats-kallisto-lib.csv"), row.names=F, quote=FALSE)
 
 fig0 <- VlnPlot(sc, features = "percent.mt", ncol = 1, group.by='Library')+ scale_y_continuous(limits = c(0,50))
-png(paste0(figuredir,"Figure0.1_violin_percent_mt.png"), width=4000, height=1000, res=120)
+png(paste0(figuredir,project,".Figure0.1_violin_percent_mt.png"), width=4000, height=1000, res=120)
 print(fig0)
 dev.off()
 
 
 fig0 <- VlnPlot(sc, features = "nFeature_RNA", ncol = 1, group.by='Library',pt.size = FALSE)
-png(paste0(figuredir,"Figure0.2_violin_nfeatures_genes.png"), width=4000, height=1000, res=120)
+png(paste0(figuredir,project,".Figure0.2_violin_nfeatures_genes.png"), width=4000, height=1000, res=120)
 print(fig0)
 dev.off()
 
 
 fig0 <- VlnPlot(sc, features = "nCount_RNA", ncol = 1, group.by='Library',pt.size = FALSE)+ 
     scale_y_continuous(limits = c(0,20000))
-png(paste0(figuredir,"Figure0.3_violin_ncount_umi.png"), width=4000, height=1000, res=120)
+png(paste0(figuredir,project,".Figure0.3_violin_ncount_umi.png"), width=4000, height=1000, res=120)
 print(fig0)
 dev.off()
 
@@ -278,7 +285,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=ncell_KL, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure1.1_barcodes.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure1.1_barcodes.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -301,7 +308,7 @@ fig0 <- ggplot(ddnew, aes(x=ident, y=y, fill=factor(batch)))+
               strip.text = element_text(size = 20),
               strip.background=element_blank())
 ##        
-png(paste0(figuredir,"Figure1.2_genes.png"), width=3000, height=2500, res=240)
+png(paste0(figuredir,project,".Figure1.2_genes.png"), width=3000, height=2500, res=240)
 print(fig0)
 dev.off() 
 
@@ -317,7 +324,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=reads_KL, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure1.3_UMI_numb.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure1.3_UMI_numb.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -332,7 +339,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=ngene_KL, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure1.4_Gene_numb.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure1.4_Gene_numb.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -349,7 +356,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=percent.mt_KL, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure2.1_percent_mt.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure2.1_percent_mt.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -374,20 +381,8 @@ sc[["nFeature_RNA"]] %>% summary()
 cat("3.1.", "filter data by removing mismatching barcodes", "\n\n")
 gc()
 
-#identical(rownames(meta),meta$NEW_BARCODE)
-infolder<- paste0(base,"1_demux_output/1_demux_New.SNG.rds")
-demux <- read_rds(infolder)
-
-demux <- demux %>% mutate(BATCH=gsub("-.*", "", EXP), treats=gsub(".*[0-9].{,2}-","",EXP)) 
-head(demux)
-
 # correct the EtOH ETOH discrepency in treat column 
 #demux$treats <- gsub("EtOH", "ETOH", demux$treats)
-
-# filter 
-demux <- demux %>% dplyr::filter(NUM.READS>10,NUM.SNPS>10) %>%
-  dplyr::select(NEW_BARCODE,NUM.READS,NUM.SNPS,EXP,BATCH,treats,Sample_ID=SNG.BEST.GUESS) 
-dim(demux) #647853
 
 matching_bc = intersect(colnames(sc),demux$NEW_BARCODE)
 
@@ -413,7 +408,7 @@ stopifnot(identical(rownames(sc@meta.data),md$NEW_BARCODE))
 
 sc@meta.data=md
 
-opfn <- paste0(outFolder,"seuratObj-merge.md.post-merge-demux.",Sys.Date(),".rds") 
+opfn <- paste0(outFolder,project,".seuratObj-merge.md.post-merge-demux.",Sys.Date(),".rds") 
 write_rds(sc, opfn)
 
 
@@ -463,7 +458,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=ncell, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure4.1_barcodes_post_filter.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure4.1_barcodes_post_filter.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -486,7 +481,7 @@ fig0 <- ggplot(ddnew, aes(x=ident, y=y, fill=factor(batch)))+
               strip.text = element_text(size = 20),
               strip.background=element_blank())
 ##        
-png(paste0(figuredir,"Figure4.2_genes_post_filter.png"), width=3000, height=2500, res=240)
+png(paste0(figuredir,project,".Figure4.2_genes_post_filter.png"), width=3000, height=2500, res=240)
 print(fig0)
 dev.off() 
 
@@ -504,7 +499,7 @@ dd <- meta%>%group_by(Library)%>%
 dd <- dd%>%dplyr::rename(ident=Library)%>%
            mutate(batch=gsub("-.*","",ident))
 
-write.csv(as.data.frame(dd), paste0(outFolder,"post-merge-kallisto-lib.csv"), row.names=F, quote=FALSE)
+write.csv(as.data.frame(dd), paste0(outFolder,project,".post-merge-kallisto-lib.csv"), row.names=F, quote=FALSE)
 
 
 # kallisto stats post merge before mt filter
@@ -528,7 +523,7 @@ sc <- subset(sc, subset = nFeature_RNA > 200 & percent.mt < 10) #& nFeature_RNA 
 
 dim(sc) #414578
 
-opfn <- paste0(outFolder,"1_Seurat_kb_demux_merged_high_percent_mt_removed.",Sys.Date(),".rds") 
+opfn <- paste0(outFolder,project,".1_Seurat_kb_demux_merged_high_percent_mt_removed.",Sys.Date(),".rds") 
 write_rds(sc, opfn)
 
 #opfn_i <- file.info(dir(outFolder, full.names=T, pattern="^1_Seurat_kb_demux_merged_high_percent_mt_removed."))
@@ -588,7 +583,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=ncell, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure5.1_barcodes_post_filtr.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure5.1_barcodes_post_filtr.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -611,7 +606,7 @@ fig0 <- ggplot(ddnew, aes(x=ident, y=y, fill=factor(batch)))+
               strip.text = element_text(size = 20),
               strip.background=element_blank())
 ##        
-png(paste0(figuredir,"Figure5.2_genes_post_filter.png"), width=3000, height=2500, res=240)
+png(paste0(figuredir,project,".Figure5.2_genes_post_filter.png"), width=3000, height=2500, res=240)
 print(fig0)
 dev.off() 
 
@@ -630,5 +625,5 @@ dd <- meta%>%group_by(Library)%>%
 dd <- dd%>%dplyr::rename(ident=Library)%>%
            mutate(batch=gsub("-.*","",ident))
 
-write.csv(as.data.frame(dd), paste0(outFolder,"post-merge-pos-mt-filter-kallisto-lib.csv"), row.names=F, quote=FALSE)
+write.csv(as.data.frame(dd), paste0(outFolder,project,".post-merge-pos-mt-filter-kallisto-lib.csv"), row.names=F, quote=FALSE)
 
