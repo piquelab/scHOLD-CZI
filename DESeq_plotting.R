@@ -17,6 +17,12 @@ filenames <- list.files(outFolder) #file list from directory
 filenames1 <- filenames[grep("DESeq_output-", filenames)] #pick specific files from list
 x <- na.omit(sapply(strsplit(filenames1,"(?<=.)(?=C[0-9])",perl=TRUE),function(y)y[2]))
 clusters <- unique(sapply(strsplit(x,"[.]"),function(z)z[1]))
+eigenvec2_o <- fread(file=paste0(base,"genotypePC/eigenvec_pc.txt")) #will use col PC1
+eigenvec2 <- merge(eigenvec2_o,cov_file,by.x="Sample_ID",by.y="dbgap.ID",all.x=T)
+notrun_var <- c("DSES_01","DSES_03","PWaist","PHip")
+colnumuotovar <- grep("czi_exp",colnames(eigenvec2))+1
+psychvarstorun <- eigenvec2[,colnumuotovar:length(colnames(eigenvec2))]
+psychvarstorun <- colnames(psychvarstorun)[!colnames(psychvarstorun) %in% notrun_var]
 
 for (cluster in clusters){
     #cluster=clusters[1]
@@ -66,9 +72,10 @@ for (cluster in clusters){
     dev.off()
                 #run covariates separately for each treatment condition
     for (i in unique(dds$treats)){
+        #i <- unique(dds$treats)[1]
         # Transform counts for data visualization
-        mclapply(c("sex","age","SES","DSES_07","DSES_09","HVS_mean","EDS_mean"),function(var){
-        #mclapply(c("SES","DSES_07","DSES_09","HVS_mean","EDS_mean"),function(var){
+        mclapply(c("sex","age",psychvarstorun),function(var){
+        #mclapply(psychvarstorun,function(var){
         #var="sex"
         #load(paste0(outFolder,"DESeq_output-",i,"-",var,cluster,".RData"))
         cat("running ",var,i)
