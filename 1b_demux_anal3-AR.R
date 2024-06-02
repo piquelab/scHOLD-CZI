@@ -6,24 +6,37 @@ library(pheatmap)
 
 ### 
 args <- commandArgs(trailingOnly = TRUE)
-#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_03_04_2024.txt","CZ1_group.txt") #for testing
-outFolder=paste0(args[1],"1_demux_output/")
+#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_fixed_05_03_2024.txt","alternative","CZI2_group.txt") #for testing
 cov_file=args[2]
+
+#read in samples file (just list of samples to run, each sample on newline)
+if(!is.na(args[4])){
+samples=read.table(args[4],header=F)
+samples$Batch <- sapply(strsplit(samples$V1,"-"),function(y) y[1])
+cat("samplefile=",args[4],"\n")
+project=sapply(strsplit(args[4],"_"),function(y)y[1])
+} else{
+   project="ALL"
+}
+
+cat("project=",project,"\n")
+
+if(args[3]=="demux"){
+   outFolder=paste0(args[1],"1_demux_output/")
+   opfn <- paste0(outFolder,project,".1_demux_New.SNG.rds")
+} else {
+   outFolder=paste0(args[1],"1_demux_alt_output/")
+   opfn <- paste0(outFolder,project,".1_demux_alt_New.SNG.rds")
+}
+demux <- read_rds(opfn)
+
 # set new output dir for filtered out unmatched figures
 figuredir=paste0(outFolder,"umatched_removed/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 
-#read in samples file (just list of samples to run, each sample on newline)
-if(!is.na(args[3])){
-samples=read.table(args[3],header=F)
-samples$Batch <- sapply(strsplit(samples$V1,"-"),function(y) y[1])
-}
-
-opfn <- paste0(outFolder,"1_demux_New.SNG.rds")
-demux <- read_rds(opfn)
-
-opfn <- paste0(outFolder,"1_demux_New.ALL.rds")
-tdemux <- read_rds(opfn)
+#commented out as do not seem to use this in remainder of script
+#opfn <- paste0(outFolder,"1_demux_New.ALL.rds")
+#tdemux <- read_rds(opfn)
 
 ###
 
@@ -32,6 +45,7 @@ tdemux <- read_rds(opfn)
 #demux$treats <- gsub("EtOH", "ETOH", demux$treats)
 
 # filter 
+#this 10 filter was used for dumuxlet input. unecessary for alternative input as already filtered for >100
 aa <- demux %>% dplyr::filter(NUM.READS>10,NUM.SNPS>10) %>%
   select(NEW_BARCODE,NUM.READS,NUM.SNPS,EXP,BATCH,treats,Sample_ID) 
 
@@ -65,10 +79,10 @@ cat("unique cell counts filtered n>100 samples= ",length(unique(cell.counts.filt
 
 cell.counts.filt <- cell.counts.filt %>% mutate(ID_BATCH=paste(Sample_ID,BATCH, sep="_"))
 
-write_tsv(cell.counts.filt,paste0(outFolder,"cell.count.filter.100min.v1.tsv"))
+write_tsv(cell.counts.filt,paste0(outFolder,project,".cell.count.filter.100min.v1.tsv"))
 
 IDmiss <- n100toremove %>% select(comb,n) 
-write.csv(IDmiss, paste0(outFolder,"missing_samples_in_demultiplexing_results_duetoFilter.csv"), row.names=F)
+write.csv(IDmiss, paste0(outFolder,project,".missing_samples_in_demultiplexing_results_duetoFilter.csv"), row.names=F)
 
 
 ##################################################################
@@ -81,7 +95,7 @@ cat("using experimental data sheet to find unmatched")
 #covariate file numbers are in format 01,02,etc which does not match file naming labels of 1,2,etc
 exp <- read.table(cov_file, row.names=NULL,header=T)
 exp$Batch <- gsub("HOLD0","HOLD",exp$Batch)
-if(!is.na(args[3])){
+if(!is.na(args[4])){
   exp <- exp %>% dplyr::filter(Batch %in% samples$Batch)
 }
 dim(exp)
@@ -111,7 +125,7 @@ merge <-  transform(merge, ID_Batch= paste0(dbgap.ID, "_", Batch))# , sep="_" ))
 unmatch_comb <- subset(merge, ID_BATCH != ID_Batch)
 print(unmatch_comb)
 
-write.csv(unmatch_comb, paste0(outFolder,"umatched_batches_samples_IDs_compared_to_exp_file.csv"), row.names=F)
+write.csv(unmatch_comb, paste0(outFolder,project,".umatched_batches_samples_IDs_compared_to_exp_file.csv"), row.names=F)
 
 ### remove the unmatched from the >100 filtered data. 
 dim(cell.counts.filt)
@@ -127,7 +141,7 @@ rem.unm <- cell.counts.filt %>% dplyr::filter(!comb %in% unmatch_comb$comb)
 dim(rem.unm)
 sum(rem.unm$n)
 
-write_tsv(rem.unm,paste0(outFolder,"cell.count.filter.100min.v2_unmatched_cells_removed.tsv"))
+write_tsv(rem.unm,paste0(outFolder,project,".cell.count.filter.100min.v2_unmatched_cells_removed.tsv"))
 
 
 ################################
@@ -146,7 +160,7 @@ fig0 <- ggplot(cell.counts.filt,aes(x=EXP, y=n, fill=factor(BATCH)))+
               axis.text.y=element_text(hjust=1, size=15),
               axis.title.y=element_text(size=20),
               legend.text=element_text(size=15))  
-figfn <- paste(figuredir, "Figure01_barcodes.png", sep="")
+figfn <- paste(figuredir, project,".Figure01_barcodes.png", sep="")
 png(figfn, width=8500, height=4000, res=380)
 fig0
 dev.off()
@@ -155,7 +169,7 @@ dev.off()
 fig0 <- cell.counts.filt %>% ggplot(aes(y = Sample_ID, x = EXP, fill = n)) + # can also try x=BATCH
   geom_tile() + 
   scale_fill_gradient(low = "white", high = "red") 
-figfn <- paste(figuredir, "Figure02_tileplot_100min.png", sep="")
+figfn <- paste(figuredir, project,".Figure02_tileplot_100min.png", sep="")
 png(figfn, width=1300, height=1000, res=120)
 fig0
 dev.off()
@@ -165,7 +179,7 @@ rownames(top10m) <- top10m$EXP
 top10m[is.na(top10m)] <- 0
 breaksList = c(0,seq(0.1, 4, by = 0.5))
 
-figfn <- paste(figuredir, "Figure02_heatmap_100min.png", sep="")
+figfn <- paste(figuredir, project,".Figure02_heatmap_100min.png", sep="")
 png(figfn, width=1300, height=1000, res=120)
 pheatmap(top10m[,-1], color = c("grey",inferno(length(breaksList))[-1]), breaks = breaksList, scale="row", cluster_cols = T, cluster_rows = FALSE, clustering_distance_rows = 'correlation',show_colnames = T)
 dev.off()
@@ -180,7 +194,7 @@ p <- ggplot(cell.counts.filt, aes(x=comb, y=EXP, fill=Perc))+
          axis.text.y=element_text(size=8),
          axis.title=element_blank())
 ###
-figfn <- paste(figuredir, "Figure03.2_heatmap.png", sep="")
+figfn <- paste(figuredir, project,".Figure03.2_heatmap.png", sep="")
 png(figfn, width=1300, height=1000, res=120)
 print(p)
 dev.off()
@@ -196,7 +210,7 @@ p <- ggplot(cell.counts.filt, aes(x=comb, y=EXP, fill=n))+
          axis.text.y=element_text(size=8),
          axis.title=element_blank())
 ###
-figfn <- paste(figuredir, "Figure03.3_heatmap_n.png", sep="")
+figfn <- paste(figuredir, project,".Figure03.3_heatmap_n.png", sep="")
 png(figfn, width=1300, height=1000, res=120)
 print(p)
 dev.off()
@@ -212,7 +226,7 @@ p <- ggplot(cell.counts.filt, aes(x=Sample_ID, y=EXP, fill=n))+
          axis.text.y=element_text(size=8),
          axis.title=element_blank())
 ###
-figfn <- paste(figuredir, "Figure03.4_heatmap_n.png", sep="")
+figfn <- paste(figuredir, project,".Figure03.4_heatmap_n.png", sep="")
 png(figfn, width=1300, height=1000, res=120)
 print(p)
 dev.off()
@@ -225,13 +239,13 @@ cellmatexp <- cell.counts.filt %>% ungroup %>% select(EXP,Sample_ID,n) %>%
 
 library(pheatmap)
 
-figfn <- paste(figuredir, "Figure03_heatmap_100min.png", sep="")
+figfn <- paste(figuredir, project,".Figure03_heatmap_100min.png", sep="")
 png(figfn, width=1000, height=1800, res=120)
 #pdf("heatmap.pdf",height=24,width=10)
 pheatmap(cellmatexp)
 dev.off()
 
-figfn <- paste(figuredir, "Figure03_heatmap_100min_exp_on_y.png", sep="")
+figfn <- paste(figuredir, project,".Figure03_heatmap_100min_exp_on_y.png", sep="")
 png(figfn, width=2200, height=1000, res=120)
 #pdf("heatmap.pdf",height=24,width=10)
 pheatmap(t(cellmatexp), 
@@ -242,10 +256,17 @@ dev.off()
 
 ####### load aa again, remove the umatched cells, and the <100. then group to plot per exp and batch
 aa <- demux %>% dplyr::filter(NUM.READS>10,NUM.SNPS>10) %>%
-  select(NEW_BARCODE,NUM.READS,NUM.SNPS,EXP,BATCH,treats,Sample_ID=SNG.BEST.GUESS) 
+  select(NEW_BARCODE,NUM.READS,NUM.SNPS,EXP,BATCH,treats,Sample_ID) 
 
 bb <- aa %>% mutate(comb=paste(EXP, Sample_ID, sep="_"))
 bb <- bb %>% dplyr::filter(!comb %in% unmatch_comb$comb) %>% dplyr::filter(!comb %in% n100toremove$comb)
+
+if(args[3]=="demux"){
+   opfn <- paste0(outFolder,project,".1_demux_filt.SNG.rds")
+} else {
+   opfn <- paste0(outFolder,project,".1_demux_alt_filt.SNG.rds")
+}
+write_rds(bb,opfn)
 
 dd <- bb %>% group_by(EXP) %>% summarize(n=n()) 
 sum(dd$n)
@@ -263,7 +284,7 @@ fig0 <- ggplot(dd,aes(x=EXP, y=n, fill=factor(BATCH)))+
               axis.text.y=element_text(hjust=1, size=15),
               axis.title.y=element_text(size=20),
               legend.text=element_text(size=15))  
-figfn <- paste(figuredir, "Figure01.2_barcodes.png", sep="")
+figfn <- paste(figuredir, project,".Figure01.2_barcodes.png", sep="")
 png(figfn, width=8500, height=4000, res=380)
 fig0
 dev.off()
