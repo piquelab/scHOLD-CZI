@@ -16,16 +16,33 @@ library(harmony)
 #####################################################################
 
 args <- commandArgs(trailingOnly = TRUE)
-#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","CZ1_group.txt") #for testing
+#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","fastdemux") #for testing "CZI2_group.txt"
 base <- args[1]
-outFolder=paste0(base,"2.1_mergeCellRangerAndDemuxlet_renamed/")
-if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
-
+method <- args[2]
 #read in samples file (just list of samples to run, each sample on newline)
-if(!is.na(args[2])){
-samples=read.table(paste0(base,args[2]),header=F)
+if(!is.na(args[3])){
+samples=read.table(paste0(base,args[3]),header=F)
 samples$Batch <- sapply(strsplit(samples$V1,"-"),function(y) y[1])
+project=sapply(strsplit(args[3],"_"),function(y)y[1])
+cat("samplefile= ",args[3])
+}else{
+   project="ALL"
 }
+if(method=="demux"){
+   outFolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/")
+   demux_in <- paste0(base,"1_demux_output/")
+   kallisto_in <- paste0("2b_mergeKallistoAnd",method,"/")
+   opfn <- paste0(demux_in,project,".1_demux_filt.SNG.rds")
+   demux <- read_rds(opfn)
+} else {
+   outFolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/")
+   demux_in <- paste0(base,"1_demux_alt_output/")
+   opfn <- paste0(demux_in,project,".1_demux_alt_filt.SNG.rds")
+   demux <- read_rds(opfn)   
+   kallisto_in <- paste0("2b_mergeKallistoAnd",method,"/")
+}
+
+if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 
 basefolder=gsub("analysis/","counts_cellranger_hg38/",base)
 
@@ -36,8 +53,8 @@ if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 future::plan(strategy = 'multicore', workers = 10)
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
-libList <- scan(paste0(basefolder,"libList.txt"),what=character(0))
-if(!is.na(args[2])){
+libList <- scan(paste0(basefolder,"libList.txt.bk2"),what=character(0)) #was libList.txt, not sure why that only has 4 samples
+if(!is.na(args[3])){
   libList <- libList[libList %in% samples$V1]
 }
 
@@ -50,14 +67,14 @@ sc_list<-sapply(libList, function(x){
   #################################################################################
   # creating seurat object
   #################################################################################
-  sc <- CreateSeuratObject(counts = gp.data, project = "cellranger-CZI",min.cells = 3, min.features=200)
+  sc <- CreateSeuratObject(counts = gp.data, project = paste0("cellranger-CZI.",project),min.cells = 3, min.features=200)
   sc@meta.data$Library<-rep(x,nrow(sc@meta.data))
   sc
 } )
 
 ## find matching barcodes demuxlet and the sc object. 
 
-opfn <- paste0(outFolder,"seuratObj-merge.",Sys.Date(),".rds") 
+opfn <- paste0(outFolder,project,".seuratObj-merge.",Sys.Date(),".rds") 
 write_rds(sc_list, opfn)
 
 # read it again if needed
@@ -65,9 +82,10 @@ write_rds(sc_list, opfn)
 #opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
 #sc_list <- read_rds(opfn)
 
-sc <- merge(sc_list[[1]],sc_list[-1],add.cell.ids = libList, project="cellranger-CZI")
+sc <- merge(sc_list[[1]],sc_list[-1],add.cell.ids = libList, project=paste0("cellranger-CZI.",project))
+sc[["RNA"]] <- JoinLayers(sc[["RNA"]])
 
-opfn <- paste0(outFolder,"seuratObj-all-ulnist-prior-to-demux.",Sys.Date(),".rds") 
+opfn <- paste0(outFolder,project,".seuratObj-all-ulnist-prior-to-demux.",Sys.Date(),".rds") 
 write_rds(sc, opfn)
 
 
@@ -83,11 +101,11 @@ cat("get raw cellranger stats before merging with demuxlet")
 
 sc[["percent.mt"]] <- PercentageFeatureSet(sc, pattern = "^MT-")
 
-count <- sc@assays$RNA@counts
+count <- sc[["RNA"]]$counts #seurat<v5: sc@assays$RNA@counts
 
-anno <- data.frame(rn=rownames(count))%>%
-        mutate(ensgene=gsub("[SU]-|\\.[0-9]*","",rn), 
-               uns=grepl("S-",rn),rnz=rowSums(count))
+#anno <- data.frame(rn=rownames(count))%>%
+#        mutate(ensgene=gsub("[SU]-|\\.[0-9]*","",rn), 
+#               uns=grepl("S-",rn),rnz=rowSums(count))
 
 meta <- sc@meta.data
 #meta$nCount_spliced <- nCount_spliced
@@ -117,7 +135,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=percent.mt, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure2.1_percent_mt.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure2.1_percent_mt.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -133,7 +151,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=ncell, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure1.1_barcodes.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure1.1_barcodes.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -156,7 +174,7 @@ fig0 <- ggplot(ddnew, aes(x=ident, y=y, fill=factor(batch)))+
               strip.text = element_text(size = 20),
               strip.background=element_blank())
 ##        
-png(paste0(figuredir,"Figure1.2_genes.png"), width=3000, height=2500, res=240)
+png(paste0(figuredir,project,".Figure1.2_genes.png"), width=3000, height=2500, res=240)
 print(fig0)
 dev.off() 
 
@@ -172,7 +190,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=reads, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure1.3_UMI_numb.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure1.3_UMI_numb.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -187,25 +205,25 @@ fig0 <- ggplot(dd,aes(x=ident, y=ngene, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure1.4_Gene_numb.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure1.4_Gene_numb.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
 
 fig0 <- VlnPlot(sc, features = "percent.mt", ncol = 1, group.by='Library',pt.size = FALSE)+ scale_y_continuous(limits = c(0,50))
-png(paste0(figuredir,"Figure0.1_violin_percent_mt.png"), width=4000, height=1000, res=120)
+png(paste0(figuredir,project,".Figure0.1_violin_percent_mt.png"), width=4000, height=1000, res=120)
 print(fig0)
 dev.off()
 
 
 fig0 <- VlnPlot(sc, features = "nFeature_RNA", ncol = 1, group.by='Library',pt.size = FALSE)
-png(paste0(figuredir,"Figure0.2_violin_nfeatures_genes.png"), width=4000, height=1000, res=120)
+png(paste0(figuredir,project,".Figure0.2_violin_nfeatures_genes.png"), width=4000, height=1000, res=120)
 print(fig0)
 dev.off()
 
 
 fig0 <- VlnPlot(sc, features = "nCount_RNA", ncol = 1, group.by='Library',pt.size = FALSE)
-png(paste0(figuredir,"Figure0.3_violin_ncount_umi.png"), width=4000, height=1000, res=120)
+png(paste0(figuredir,project,".Figure0.3_violin_ncount_umi.png"), width=4000, height=1000, res=120)
 print(fig0)
 dev.off()
 
@@ -230,7 +248,7 @@ dd <- dd%>%dplyr::rename(ident=Library) %>%
            mutate(batch=gsub("-.*","",ident))
 
 ### load the kallisto dd to merge and do scatter plots
-ddk <- read.csv(paste0(base,"2b_mergeKallistoAndDemuxlet/raw-stats-kallisto-lib.csv"))#, row.names=F, quote=FALSE)
+ddk <- read.csv(paste0(base,kallisto_in,project,".raw-stats-kallisto-lib.csv"))#, row.names=F, quote=FALSE)
 
 mdd <- left_join(as.data.frame(dd), ddk, by="ident")
 
@@ -250,7 +268,7 @@ fig0 <- ggplot(mdd, aes(x=ncell_CR, y=ncell_KL, color=batch.x))+
             #labs(color = "DEG", subtitle = "all participants")
             #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
             labs(x="CellRanger # of cells", y="Kallisto # of cells")
-png(paste0(figuredir,"Figure3.0-scatter-numb-cell-CR-KL.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure3.0-scatter-numb-cell-CR-KL.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -270,7 +288,7 @@ fig0 <- ggplot(mdd, aes(x=ncell_CR, y=ncell_KL, color=batch.x))+
             #labs(color = "DEG", subtitle = "all participants")
             #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
             labs(x="CellRanger # of cells", y="Kallisto # of cells")
-png(paste0(figuredir,"Figure3.0-scatter-numb-cell-CR-KL-labled.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure3.0-scatter-numb-cell-CR-KL-labled.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -292,7 +310,7 @@ fig0 <- ggplot(mdd, aes(x=reads_CR, y=reads_KL, color=batch.x))+
             #labs(color = "DEG", subtitle = "all participants")
             #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
             labs(x="CellRanger # of UMI", y="Kallisto # of UMI")
-png(paste0(figuredir,"Figure3.1-scatter-numb-readUMI-per-cell-CR-KL-labled.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure3.1-scatter-numb-readUMI-per-cell-CR-KL-labled.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -314,7 +332,7 @@ fig0 <- ggplot(mdd, aes(x=ngene_CR, y=ngene_KL, color=batch.x))+
             #labs(color = "DEG", subtitle = "all participants")
             #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
             labs(x="CellRanger # of genes", y="Kallisto # of genes")
-png(paste0(figuredir,"Figure3.2-scatter-numb-ngenes-per-cell-CR-KL-labled.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure3.2-scatter-numb-ngenes-per-cell-CR-KL-labled.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -336,7 +354,7 @@ fig0 <- ggplot(mdd, aes(x=percent.mt_CR, y=percent.mt_KL, color=batch.x))+
             #labs(color = "DEG", subtitle = "all participants")
             #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
             labs(x="CellRanger percent mitochondria", y="Kallisto percent mitochondria")
-png(paste0(figuredir,"Figure3.3-scatter-percent-mitochondria-CR-KL-labled.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure3.3-scatter-percent-mitochondria-CR-KL-labled.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -344,13 +362,9 @@ dev.off()
 
 cat("find matching barcodes demuxlet and the sc object")
 
-opfn <- paste0(base,"/1_demux_output/1_demux_New.SNG.rds")
-demux <- read_rds(opfn)
 ###
 
 # filter 
-demux <- demux %>% dplyr::filter(NUM.READS>10,NUM.SNPS>10) %>%
-  select(NEW_BARCODE,NUM.READS,NUM.SNPS,EXP,BATCH,treats,Sample_ID) 
 
 demux$NEW_BARCODE = paste0(demux$NEW_BARCODE,"-1")
 
@@ -377,7 +391,7 @@ stopifnot(identical(rownames(sc@meta.data),md$NEW_BARCODE))
 
 sc@meta.data=md
 
-opfn <- paste0(outFolder,"seuratObj-merge.md.post-merge-demux.",Sys.Date(),".rds") 
+opfn <- paste0(outFolder,project,".seuratObj-merge.md.post-merge-demux.",Sys.Date(),".rds") 
 write_rds(sc, opfn)
 
 
@@ -391,11 +405,11 @@ cat("cellranger stats after merging with demuxlet")
 #opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
 #sc <- read_rds(opfn)
 
-count <- sc@assays$RNA@counts
+count <- sc[["RNA"]]$counts
 
-anno <- data.frame(rn=rownames(count))%>%
-        mutate(ensgene=gsub("[SU]-|\\.[0-9]*","",rn), 
-               uns=grepl("S-",rn),rnz=rowSums(count))
+#anno <- data.frame(rn=rownames(count))%>%
+#        mutate(ensgene=gsub("[SU]-|\\.[0-9]*","",rn), 
+#               uns=grepl("S-",rn),rnz=rowSums(count))
 
 meta <- sc@meta.data
 #meta$nCount_spliced <- nCount_spliced
@@ -427,7 +441,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=ncell, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure4.1_barcodes_post_merge.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure4.1_barcodes_post_merge.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -450,7 +464,7 @@ fig0 <- ggplot(ddnew, aes(x=ident, y=y, fill=factor(batch)))+
               strip.text = element_text(size = 20),
               strip.background=element_blank())
 ##        
-png(paste0(figuredir,"Figure4.2_genes_post_merge.png"), width=3000, height=2500, res=240)
+png(paste0(figuredir,project,".Figure4.2_genes_post_merge.png"), width=3000, height=2500, res=240)
 print(fig0)
 dev.off() 
 
@@ -466,7 +480,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=reads, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure4.3_UMI_numb_post_merge.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure4.3_UMI_numb_post_merge.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -481,7 +495,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=ngene, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure4.4_Gene_numb_post_merge.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure4.4_Gene_numb_post_merge.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -496,7 +510,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=percent.mt, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure4.5_percent_mt_merge.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure4.5_percent_mt_merge.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -523,14 +537,14 @@ sc[["nCount_RNA"]] %>% summary()
 mean(sc[["nCount_RNA"]] < 20000) # 
 
 scsub <- subset(sc, subset = percent.mt < 10 & nFeature_RNA > 10000) 
-opfn <- paste0(outFolder,"seuratObj-postmerge-greater10kfeature.",Sys.Date(),".rds") 
+opfn <- paste0(outFolder,project,".seuratObj-postmerge-greater10kfeature.",Sys.Date(),".rds") 
 write_rds(scsub,opfn)
 rm(scsub)
 gc()
 
 sc <- subset(sc, subset = nFeature_RNA > 200 & percent.mt < 10) #& nFeature_RNA < 20000
 
-opfn <- paste0(outFolder,"seuratObj-postmerge-after-mt-filtering.",Sys.Date(),".rds") 
+opfn <- paste0(outFolder,project,".seuratObj-postmerge-after-mt-filtering.",Sys.Date(),".rds") 
 write_rds(sc, opfn)
 
 
@@ -545,11 +559,11 @@ write_rds(sc, opfn)
 
 cat("cellranger stats after filters")
 
-count <- sc@assays$RNA@counts
+count <- sc[["RNA"]]$counts
 
-anno <- data.frame(rn=rownames(count))%>%
-        mutate(ensgene=gsub("[SU]-|\\.[0-9]*","",rn), 
-               uns=grepl("S-",rn),rnz=rowSums(count))
+#anno <- data.frame(rn=rownames(count))%>%
+#        mutate(ensgene=gsub("[SU]-|\\.[0-9]*","",rn), 
+#               uns=grepl("S-",rn),rnz=rowSums(count))
 
 meta <- sc@meta.data
 #meta$nCount_spliced <- nCount_spliced
@@ -587,7 +601,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=ncell, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure6.1_barcodes_post_merge_post_filt.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure6.1_barcodes_post_merge_post_filt.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -610,7 +624,7 @@ fig0 <- ggplot(ddnew, aes(x=ident, y=y, fill=factor(batch)))+
               strip.text = element_text(size = 20),
               strip.background=element_blank())
 ##        
-png(paste0(figuredir,"Figure6.2_genes_post_merge_post_filt.png"), width=3000, height=2500, res=240)
+png(paste0(figuredir,project,".Figure6.2_genes_post_merge_post_filt.png"), width=3000, height=2500, res=240)
 print(fig0)
 dev.off() 
 
@@ -627,7 +641,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=reads, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure6.3_UMI_numb_post_merge_post_filt.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure6.3_UMI_numb_post_merge_post_filt.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -642,7 +656,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=ngene, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure6.4_Gene_numb_post_merge_post_filt.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure6.4_Gene_numb_post_merge_post_filt.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -659,7 +673,7 @@ fig0 <- ggplot(dd,aes(x=ident, y=percent.mt, fill=factor(batch)))+
               axis.text.x=element_text(angle=90,hjust=1, vjust=0.5, size=7),
               plot.title=element_text(hjust=0.5))  
 
-png(paste0(figuredir,"Figure6.5_percent_mt_merge_post_filt.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure6.5_percent_mt_merge_post_filt.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -685,7 +699,7 @@ dd <- dd%>%dplyr::rename(ident=Library)%>%
            mutate(batch=gsub("-.*","",ident))
 
 ### load the kallisto dd to merge and do scatter plots
-ddk <- read.csv(paste0(base,"2b_mergeKallistoAndDemuxlet/post-merge-pos-mt-filter-kallisto-lib.csv"))#, row.names=F, quote=FALSE)
+ddk <- read.csv(paste0(base,kallisto_in,project,".post-merge-pos-mt-filter-kallisto-lib.csv"))#, row.names=F, quote=FALSE)
 
 mdd <- left_join(as.data.frame(dd), ddk, by="ident")
 
@@ -707,7 +721,7 @@ fig0 <- ggplot(mdd, aes(x=ncell_CR, y=ncell_KL, color=batch.x))+
             #labs(color = "DEG", subtitle = "all participants")
             #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
             labs(x="CellRanger # of cells", y="Kallisto # of cells")
-png(paste0(figuredir,"Figure7.0-scatter-numb-cell-CR-KL.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure7.0-scatter-numb-cell-CR-KL.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -727,7 +741,7 @@ fig0 <- ggplot(mdd, aes(x=ncell_CR, y=ncell_KL, color=batch.x))+
             #labs(color = "DEG", subtitle = "all participants")
             #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
             labs(x="CellRanger # of cells", y="Kallisto # of cells")
-png(paste0(figuredir,"Figure7.0-scatter-numb-cell-CR-KL-labled.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure7.0-scatter-numb-cell-CR-KL-labled.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -750,7 +764,7 @@ fig0 <- ggplot(mdd, aes(x=reads_CR, y=reads_KL, color=batch.x))+
             #labs(color = "DEG", subtitle = "all participants")
             #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
             labs(x="CellRanger # of UMI", y="Kallisto # of UMI")
-png(paste0(figuredir,"Figure7.1-scatter-numb-readUMI-per-cell-CR-KL.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure7.1-scatter-numb-readUMI-per-cell-CR-KL.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -773,7 +787,7 @@ fig0 <- ggplot(mdd, aes(x=ngene_CR, y=ngene_KL, color=batch.x))+
             #labs(color = "DEG", subtitle = "all participants")
             #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
             labs(x="CellRanger # of genes", y="Kallisto # of genes")
-png(paste0(figuredir,"Figure7.2-scatter-numb-ngenes-per-cell-CR-KL.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure7.2-scatter-numb-ngenes-per-cell-CR-KL.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
 
@@ -796,6 +810,6 @@ fig0 <- ggplot(mdd, aes(x=percent.mt_CR, y=percent.mt_KL, color=batch.x))+
             #labs(color = "DEG", subtitle = "all participants")
             #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
             labs(x="CellRanger percent mitochondria", y="Kallisto percent mitochondria")
-png(paste0(figuredir,"Figure7.3-scatter-percent-mitochondria-CR-KL.png"), width=1000, height=600, res=120)
+png(paste0(figuredir,project,".Figure7.3-scatter-percent-mitochondria-CR-KL.png"), width=1000, height=600, res=120)
 print(fig0)
 dev.off()
