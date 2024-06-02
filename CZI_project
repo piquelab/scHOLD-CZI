@@ -18,6 +18,8 @@ fastq alignment, etc.
 The cell-ranger output aligned to hg38: /rs/rs_grp_schold/CZI/RNA/counts_cellranger_hg38
 demuxlet: /rs/rs_grp_schold/CZI/RNA/counts_cellranger_hg38/demuxlet
 kallisto bustools kb output using the nascent workflow: /rs/rs_grp_schold/CZI/RNA/counts_kallisto/nascent/
+psych covariate file (converted by ALI): /rs/rs_grp_schold/covariates/HOLD-CZI_covariates_converted_dbgapID_key_n183_AR.txt
+alternative to demuxlet files as run on post CZI1 batch: /rs/rs_grp_schold/CZI/RNA/counts_cellranger_2024-04-19/fastdemux/fdout : HOLD10-RNA-CTRL.fdout.raw.info.txt.gz exampile file similar to .best files
 
 Steps to complete:
 Filter out doublets, bad ind match, high mitochondria (scripts in github)
@@ -41,10 +43,8 @@ module load R/test_4.3.2 #old: module load r/4.2.0
 #these arguments need to be input After getting interactive node - they are removed upon instance
 analysis=/rs/rs_grp_schold/CZI/RNA/analysis/
 basefolder=/rs/rs_grp_schold/CZI/RNA/counts_cellranger_hg38/demuxlet/demuxlet/
-samples=CZ1_group.txt
-label=CZ1
-cov_file=/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_03_04_2024.txt
-
+cov_file=/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_fixed_05_03_2024.txt
+psych_cov_file=/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_converted_dbgapID_key_n183_AR.txt
 #mkdir $analysis
 cd $analysis
 
@@ -61,6 +61,7 @@ cov <- rbind(cov, data.frame(dbgap.ID="HO-070",Batch="HOLD01", age="NA", sex="NA
 cov=transform(cov, Batch=ifelse(dbgap.ID=="HO-072", "HOLD07",Batch),czi_exp=ifelse(dbgap.ID=="HO-072", "CZI1",czi_exp))
 cov_sub <- cov[!cov$dbgap.ID %in% c(missing,unknown),]
 fwrite(cov_sub, quote=F , row.names=F , sep='\t' , file="/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_03_04_2024.txt")
+#this file was then further updated by Ali for other issues - /rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_fixed_05_03_2024.txt
 ```
 
 #CZ1 group file labels
@@ -74,11 +75,68 @@ HOLD3-RNA-LPS
 HOLD7-RNA-CTRL
 HOLD7-RNA-LPS
 ctrl-c
+cat > CZI2_group.txt
+HOLD10-RNA-CTRL
+HOLD10-RNA-LPS
+HOLD10-RNA-DEX
+HOLD11-RNA-CTRL
+HOLD11-RNA-LPS
+HOLD12-RNA-CTRL
+HOLD12-RNA-LPS
+HOLD12-RNA-DEX
+HOLD13-RNA-CTRL
+HOLD13-RNA-LPS
+HOLD13-RNA-DEX
+HOLD14-RNA-CTRL
+HOLD14-RNA-LPS
+HOLD4-RNA-CTRL
+HOLD4-RNA-LPS
+HOLD5-RNA-CTRL
+HOLD5-RNA-LPS
+HOLD6-RNA-CTRL
+HOLD6-RNA-LPS
+HOLD6-RNA-DEX
+HOLD8-RNA-CTRL
+HOLD8-RNA-LPS
+HOLD9-RNA-CTRL
+HOLD9-RNA-LPS
+ctrl-c
+
+#kinship individuals file
+cat > kinship.txt
+#ID1    ID2     NSNP    HETHET  IBS0    KINSHIP                                                                                                               
+HO-057  HO-047  1682684 0.050949        0.0118763       0.0936464
+HO-071  HO-063  1814949 0.0613863       0.00566352      0.178403
+HO-116  HO-110  1814949 0.063777        0.00772694      0.20112
+HO-117  HO-114  1814949 0.0641853       0.00659523      0.210805
+HO-118  HO-111  1814949 0.0556996       0.00250861      0.204839
+HO-124  HO-110  1814949 0.0477385       0.00898758      0.121349
+HO-124  HO-116  1814949 0.046085        0.00960964      0.1112
+HO-164  HO-150  1814949 0.0729007       0.00461941      0.264254
+ctrl-c
+
+
+# to process samples run with alternative demuxlet program
+#I would filter so we use droplets that are singlets. Column 5 DropType==1, Nsnp>100 Numi >100. BARCODE should  be the same, and BestSample should be the best matching sample
 
 #need to be on node to run
-Rscript src/1_demux.R $analysis $basefolder $cov_file $samples
+method="demux" #OR
+method="fastdemux"
+#pick which run: or none and all samples will run
+samples=CZ1_group.txt
+samples=CZI2_group.txt
 
-Rscript src/1b_demux_anal3-AR.R $analysis $cov_file $samples
+#part 1
+basefolder=/rs/rs_grp_schold/CZI/RNA/counts_cellranger_2024-04-19/demuxlet/demuxlet/ #basefolder=/rs/rs_grp_schold/CZI/RNA/counts_cellranger_hg38/demuxlet/demuxlet/
+Rscript src/1_demux.R $analysis $basefolder $cov_file #$samples
+#OR
+basefolder=/rs/rs_grp_schold/CZI/RNA/counts_cellranger_2024-04-19/fastdemux/fdout/
+Rscript src/1_demux_alternative.R $analysis $basefolder $cov_file #$samples
+
+#part 2
+Rscript src/1b_demux_anal3-AR.R $analysis $cov_file $method #$samples
+#note that the mismatch found with HO-187 is known and we have chosen to drop HOLD14 and only keep HOLD1 
+
 ```
 
 ```{r }
@@ -91,51 +149,102 @@ install.packages("msigdbr", repos='http://cran.us.r-project.org')
 install.packages("splitstackshape", repos='http://cran.us.r-project.org')
 remotes::install_github('mojaveazure/ggseurat')
 BiocManager::install('glmGamPoi') #for sctransform faster implementation
+install.packages("diemr",repos='http://cran.us.r-project.org')
 
 ```
 ```{bash, engine.opts='-l'}
 
+#filtering cellranger/kallisto doublets
 #process counts from kallisto. This currently is not identifying ANY mt genes which is not good
-Rscript src/2_merge_kallisto_demuxlet_AR.R $analysis $samples
+#need to run on seurat V<5, load with module load r/4.2.0
+srun -q primary -n 10 -N 1-1 --mem=125G -t 3:00:00 --pty bash #-x hax\[0-13\]
+module load r/4.2.0
+analysis=/rs/rs_grp_schold/CZI/RNA/analysis/
+cd $analysis
+method="fastdemux" OR method="demux"
+Rscript src/2_merge_kallisto_demuxlet_AR.R $analysis $method #$samples
+#exit out of instance
+
 #process counts from cellranger - this looks good I think, need to check again since first run forgot to subset sample list
-Rscript src/2a_mergeCellRangerAndDemuxlet_AR.R $analysis $samples
+srun -q primary -n 10 -N 1-1 --mem=225G -t 4:00:00 --pty bash #-x hax\[0-13\]
+module unload gnu7/7.3.0
+module load R/test_4.3.2 #old: module load r/4.2.0
+analysis=/rs/rs_grp_schold/CZI/RNA/analysis/
+cd $analysis
+method="fastdemux" OR method="demux"
+
+Rscript src/2a_mergeCellRangerAndDemuxlet_AR.R $analysis $method #$samples
 
 #split this from the cellranger script since dims and resolution need to be chosen and entered
-Rscript src/2b_seuratPCA.R $analysis
+#VERY memory intensive
+srun -q primary -n 10 -N 1-1 --mem=825G -t 10:00:00 --pty bash #-x hax\[0-13\]
+module unload gnu7/7.3.0
+module load R/test_4.3.2 #old: module load r/4.2.0
+analysis=/rs/rs_grp_schold/CZI/RNA/analysis/
+cd $analysis
+method="fastdemux"
+project=ALL #this refers to if running part of a batch or all samples. previous scripts grab this from the samples object
+Rscript src/2b_seuratPCA.R $analysis $project $method
+
 #look at PCA and elbowplot to pick dimensions. resolution will need to be set but will need to check umaps to do that in 2c
-Rscript src/2c_seuratumap.R $analysis 10
+Rscript src/2c_seuratumap.R $analysis 11 $project $method
+
 #look at umap cluster labels to select resolution
 for res in 0.1 0.15 0.2 0.3 0.4 0.5; do
 echo running $res
-Rscript src/2d_seuratclustering.R $analysis $res
+Rscript src/2d_seuratclustering.R $analysis $project $method $res
 done
 
 #run also preharmony to see if effects are removed by harmony
-Rscript src/2e_seuratpreharmony_umap.R $analysis 10
-for res in 0.1 0.15 0.2 0.3 0.4 0.5; do
+Rscript src/2e_seuratpreharmony_umap.R $analysis $project $method 11
+#for res in 0.1 0.15 0.2 0.3 0.4 0.5; do #start with res matching harmony
+res=0.3
 echo running $res
-Rscript src/2f_seuratpreharmony_clustering.R $analysis $res
-done
+Rscript src/2f_seuratpreharmony_clustering.R $analysis $project $method $res
+#done
 
-Rscript src/5_IdenCelltype_seurat_SCT_AR.R $analysis #this in progress. completed alt sctype assignment within R
+#get cell type labels
+Rscript src/5_IdenCelltype_seurat_SCT_AR.R $analysis $res $project $method #this takes a ton of memory, need to retry
+Rscript src/5_IdenCelltype_sctype.R $analysis $res $project $method #this uses less memory and ran fine
 
 #to run genotype PC
 #This is the full genotype file, it is only filtered for alleles MAF>0
 #/rs/rs_grp_schold/reimpute/ref.ac1.vcf.gz
-
+#this only needs to be run once 
+analysis=/rs/rs_grp_schold/CZI/RNA/analysis/
+cd $analysis
 cp /nfs/rprdata/julong/sc_brains/plink/run_pca.sh src
 #updated the script to use input vcf argument and specify output folder from argument
 sbatch --job-name=plinkgenoPC --output="job_readouts/plinkgenoPC.log" -q primary -n 5 -N 1-1 --mem=50G -t 2:00:00 --export=VCF="/rs/rs_grp_schold/reimpute/ref.ac1.vcf.gz",OUT_FOLDER=$analysis"genotypePC/" src/run_pca.sh 
 #squeue -u fh8591 #check to see when job finishes
+mkdir $analysis"genotypePCnokin/"
+sbatch --job-name=plinkgenoPC --output="job_readouts/plinkgenoPC.log" -q primary -n 5 -N 1-1 --mem=50G -t 2:00:00 --export=VCF="/rs/rs_grp_schold/CZI/RNA/analysis/ref.ac1.removekin.vcf.gz",OUT_FOLDER=$analysis"genotypePCnokin/" src/run_pca.sh 
 
-Rscript src/plink_to_PC.R $analysis $cov_file $samples
+#this is run per batch or on all samples
+Rscript src/plink_to_PC.R $analysis $cov_file #$samples
 
-#individuals to remove (ie. here removing 2 individuals that were outliers in genotype pc plus related)
-cat > CZI1_removeind.txt
-HO-110
-HO-124
-HO-114
+#look at PC plots for outliers
+##decided to instead just correct for PC, not remove
+##individuals to remove (ie. here removing 2 individuals that were outliers in genotype pc plus related)
+#cat > CZI1_removeind.txt
+#HO-110
+#HO-124
+#HO-114
+#cat > ALL_removeind.txt
+#HO-110
+#HO-124
+#HO-114
+#HO-116
+#HO-164
+#HO-117
 
-#DESeq analysis for LPS vs CTRL plus separate runs (LPS,CTRL) for age and sex, plus interaction term runs
-Rscript src/00-DESeq.R $analysis #$cov_file $samples
+#QC psych variables - run once
+#make table of expected range of psycosocial variables in excel using HOLD codebook and then copy it over
+cat > /rs/rs_grp_schold/covariates/CZI_expectedrange_042024.txt
 
+Rscript src/covariates_QC.R /rs/rs_grp_schold/CZI/ /rs/rs_grp_schold/covariates/ HOLD-CZI_covariates_converted_dbgapID_key_n183_AR.txt CZI_expectedrange_042024.txt
+
+#DESeq analysis for LPS vs CTRL plus separate runs (LPS,CTRL) for age and sex, plus interaction term runs. plus added psych runs
+Rscript src/00-DESeq.R $analysis $psych_cov_file ALL_removeind.txt
+#volcano plots (all) and heatmaps (treatvsctrl)
+Rscript src/DESeq_plotting.R $analysis
