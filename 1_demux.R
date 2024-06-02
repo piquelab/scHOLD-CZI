@@ -13,6 +13,9 @@ basefolder=args[2]
 if(!is.na(args[4])){
 samples=read.table(args[4],header=F)
 samples$Batch <- sapply(strsplit(samples$V1,"-"),function(y) y[1])
+project=sapply(strsplit(args[4],"_"),function(y)y[1])
+}else{
+   project="ALL"
 }
 cov_file=args[3]
 exp <- read.table(cov_file, row.names=NULL,header=T)
@@ -58,10 +61,10 @@ demux <- mclapply(expNames,function(ii){
 demux <- do.call(rbind,demux)
 
 ### output
-opfn <- paste0(outdir,"1_demux_New.ALL.rds")
+opfn <- paste0(outdir,project,".1_demux_New.ALL.rds")
 write_rds(demux, opfn)
 
 # DROPLET.TYPE: "SNG" "AMB"
-opfn <- paste0(outdir,"1_demux_New.SNG.rds")
+opfn <- paste0(outdir,project,".1_demux_New.SNG.rds")
 demux <- subset(demux,DROPLET.TYPE=="SNG")
 write_rds(demux,opfn)
