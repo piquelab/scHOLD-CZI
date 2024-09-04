@@ -17,6 +17,7 @@ library(harmony)
 
 args <- commandArgs(trailingOnly = TRUE)
 #args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","fastdemux") #for testing "CZI2_group.txt"
+#args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/", "demux")
 base <- args[1]
 method <- args[2]
 #read in samples file (just list of samples to run, each sample on newline)
