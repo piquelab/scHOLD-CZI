@@ -5,6 +5,8 @@ library(harmony)
 
 args <- commandArgs(trailingOnly = TRUE)
 #args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/",11,"ALL","fastdemux") #for testing
+#args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",13,"ALL","demux")
+
 base <- args[1]
 project <- args[3]
 method <- args[4]
@@ -19,7 +21,7 @@ if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 
 dimset <- as.numeric(args[2])
 
-future::plan(strategy = 'multicore', workers = 10)
+future::plan(strategy = 'multicore', workers = 4)
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
 ########################

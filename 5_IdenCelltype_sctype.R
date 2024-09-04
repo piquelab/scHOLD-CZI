@@ -7,6 +7,7 @@ library(Seurat)
 #######alt cell typing 
 args <- commandArgs(trailingOnly = TRUE)
 #args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/",0.3,"ALL","fastdemux") #for testing
+#args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",0.2,"ALL","demux")
 base <- args[1]
 resset <- as.numeric(args[2])
 project <- args[3]
@@ -60,6 +61,8 @@ opfn_i <- file.info(dir(paste0(base,"2.1_mergeCellRangerAnd",method,"/"), full.n
 opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
 sc <- read_rds(opfn)
 
+  es.max = sctype_score(scRNAseqData = sc[["RNA"]]$scale.data, scaled = TRUE, 
+                      gs = gs_list$gs_positive, gs2 = gs_list$gs_negative)  #sc[["RNA"]]@scale.data for seurat V<5
   cL_resutls = do.call("rbind", lapply(unique(sc@meta.data$seurat_clusters), function(cl){
     es.max.cl = sort(rowSums(es.max[ ,rownames(sc@meta.data[sc@meta.data$seurat_clusters==cl, ])]), decreasing = !0)
     head(data.frame(cluster = cl, type = names(es.max.cl), scores = es.max.cl, ncells = sum(sc@meta.data$seurat_clusters==cl)), 10)
@@ -71,10 +74,12 @@ sc <- read_rds(opfn)
   cl_type = sctype_scores[sctype_scores$cluster==j,]; 
   sc@meta.data$customclassif[sc@meta.data$seurat_clusters == j] = as.character(cl_type$type[1])
   }
-  png(width = 9, height = 8, file=paste0(figuredir,project,".harmony_umap_QC_wSCtypecelltype.png"), pointsize=12, 
+  png(width = 9, height = 8, file=paste0(figuredir,project,".",resset,".harmony_umap_QC_wSCtypecelltype.png"), pointsize=12, 
       bg = "transparent", units = "in", res = 1200)
   p <- DimPlot(sc, reduction = "umap", label = TRUE, repel=TRUE, group.by = 'customclassif', pt.size = .1)
   print(p)
   dev.off()
-opfn <- paste0(outdir,project,".seuratObj-.harmony-sctype-",Sys.Date(),".rds")
+opfn <- paste0(outdir,project,".",resset,".seuratObj-.harmony-sctype-",Sys.Date(),".rds")
 write_rds(sc, opfn)
+
+

@@ -5,6 +5,8 @@ library(harmony)
 
 args <- commandArgs(trailingOnly = TRUE)
 #args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","ALL","fastdemux",0.1) #for testing
+#args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","ALL","demux",0.1)
+
 base <- args[1]
 project <- args[2]
 method <- args[3]
@@ -29,6 +31,7 @@ opfn_i <- file.info(dir(outFolder, full.names=T, pattern=paste0(project,".seurat
 opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
 sc <- read_rds(opfn)
 
+#for(resset in c(0.1,0.15,0.2,0.3,0.4)){
 sc <- sc %>% FindClusters(resolution = resset) %>% 
     identity()
 
@@ -50,7 +53,6 @@ fig1 <- DimPlot(sc, reduction = "umap", label=T, group.by="seurat_clusters", lab
 print(fig1)
 dev.off()
 
-
 # make initial umap group by treatment
 fname=paste0(figuredir,project,".Figure5.1_UMAP_Harmony-res",resset,"_group_treatment",Sys.Date(),".png");
 png(fname,width=5000,height=5000, res=240)
@@ -62,7 +64,6 @@ fig1 <- DimPlot(sc, reduction = "umap", group.by = "treats", pt.size = .5)+
     axis.title.y = element_text(colour = "black",size = rel(1.3)), legend.text=element_text(size = rel(1.8)))
 print(fig1)
 dev.off()
-
 
 # make initial umap group by batch
 fname=paste0(figuredir,project,".Figure5.2_UMAP_Harmony-res",resset,"_group_batch",Sys.Date(),".png");
@@ -102,7 +103,7 @@ png(fname,width=5000,height=4000, res=240)
     p2
 dev.off()
 
-                
+              
 fname=paste0(figuredir,project,".Figure6.2_UMAP_Harmony-res",resset,".grid-treats",Sys.Date(),".png");
 png(fname,width=5000,height=3000, res=240)
     p2 <- ggplot(aa,aes(umap_1,umap_2,color=seurat_clusters)) +
