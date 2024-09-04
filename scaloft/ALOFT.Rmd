@@ -1,0 +1,127 @@
+#start
+ALOFT
+
+Questions to answer:
+
+Already completed:
+Merging filtered demuxlet (SNPS>10, READS>10) with CellRanger outputs. 
+Seurat object was filtered for cells with nFeature_RNA > 200 & percent.mt < 20.
+No other specific filtering on sample-batch assignments or directly on cell number at this point. 
+The two script where Ali generated each of these objects are in the same parent directory /rs/rs_grp_scaloft/scALOFT_2024/2.1_mergeCellRangerAndDemuxlet/ scripts 002a- and 002b- for scALOFT1 and 2 respectively. Ali also uploaded these to github under the same folder names.
+in the script 1b_demux_anal3-AR.R that you mentioned, I used to look at the results of demuxlet and do a QC prior to merging with CellRanger outputs. For this analysis we decided to directly proceed with merging and then QC the result for sample-batch assignments, so I have not used that script for these objects.
+
+scALOFT1: /rs/rs_grp_scaloft/scALOFT_2024/2.1_mergeCellRangerAndDemuxlet/scALOFT1/seuratObj-after-mt-filtering.2024-04-10.rds
+scALOFT2: /rs/rs_grp_scaloft/scALOFT_2024/2.1_mergeCellRangerAndDemuxlet/scALOFT2/seuratObj-after-mt-filtering.2024-04-10.rds
+
+Experimental sample-batch assignments: /rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt
+Covariate: /rs/rs_grp_scaloft/scALOFT_2024/covariates/ALOFT_covariate_issues_fixed_n521_uniq-n265_04-03-2024.txt
+The covariate file also has two columns: SCAIP1-6 and SCAIP7-18. Samples from these batches (scALOFT samples) are annotated as 1 in these two columns. You need this info to make sure you grab the correct wave of the covariate file for the analysis.
+
+SCAIP1 - SCAIP5V2 is Chemistry V2
+SCAIP5V3 - SCAIP18 is Chemistry V3
+#want only V3
+
+Steps to complete:
+merge the 2 seurat objects
+need to do the filtering for unmatched sample-batch and low cell count as seen in 1b_demux_anal3-AR.R
+PCA/UMAP/clustering
+sctype
+Pseudobulk r for deseq
+
+
+```{bash, engine.opts='-l'}
+
+screen
+#if running 1_demux.R or 1b_demux_anal3-AR.R; 32G. merge_kallisto needs more (64); 2a cellranger needs more than 150; sctransform needs more than 200
+srun -q primary -n 10 -N 1-1 --mem=225G -t 10:00:00 --pty bash #-x hax\[0-13\]
+#16G was too little mem, 4 hours randomly selected - can change this variable
+#some nodes have issues (ie. hax1 and hax2 were not loading ggplot2)
+#export MODULEPATH=$MODULEPATH:/wsu/el7/groups/piquelab/modulefiles
+module unload gnu7/7.3.0
+module load R/test_4.3.2 #old: module load r/4.2.0
+#module load gnu7/7.3.0 mpich/3.2.1 r/4.2.0 #one job instance required all this, not sure why
+
+#these arguments need to be input After getting interactive node - they are removed upon instance
+analysis=/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/
+cov_file=/rs/rs_grp_scaloft/scALOFT_2024/covariates/ALOFT_covariate_issues_fixed_n521_uniq-n265_04-03-2024.txt
+sample_batch_assignments=/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt
+mkdir $analysis
+cd $analysis
+
+########################################
+```{bash, engine.opts='-l'}
+
+#need to be on node to run
+#method="demux" #OR
+method="fastdemux"
+#merging seurat objects, removing duplicate samples, removing V2 chemistry, removing low cell count, removing unmatched combinations
+Rscript src/merge_filter_initSeurat.R $analysis $method $sample_batch_assignments
+
+
+#split this from the cellranger script since dims and resolution need to be chosen and entered
+#VERY memory intensive
+project=ALL #this refers to if running part of a batch or all samples. previous scripts grab this from the samples object
+Rscript src/2b_seuratPCA.R $analysis $project $method
+
+#look at PCA and elbowplot to pick dimensions. resolution will need to be set but will need to check umaps to do that in 2c
+Rscript src/2c_seuratumap.R $analysis 13 $project $method
+
+#look at umap cluster labels to select resolution
+for res in 0.1 0.15 0.2 0.3 0.4 0.5; do
+echo running $res
+Rscript src/2d_seuratclustering.R $analysis $project $method $res
+done
+
+#run also preharmony to see if effects are removed by harmony
+Rscript src/2e_seuratpreharmony_umap.R $analysis $project $method 11
+#for res in 0.1 0.15 0.2 0.3 0.4 0.5; do #start with res matching harmony
+res=0.15
+echo running $res
+Rscript src/2f_seuratpreharmony_clustering.R $analysis $project $method $res
+#done
+
+#get cell type labels
+Rscript src/5_IdenCelltype_seurat_SCT_AR.R $analysis $res $project $method #this takes a ton of memory, need to retry
+Rscript src/5_IdenCelltype_sctype.R $analysis $res $project $method #this uses less memory and ran fine
+
+#to run genotype PC
+#This is the full genotype file, it is only filtered for alleles MAF>0
+#/rs/rs_grp_schold/reimpute/ref.ac1.vcf.gz
+#this only needs to be run once 
+analysis=/rs/rs_grp_schold/CZI/RNA/analysis/
+cd $analysis
+cp /rs/rs_grp_schold/CZI/RNA/analysis/src/run_pca.sh src
+#updated the script to use input vcf argument and specify output folder from argument
+sbatch --job-name=plinkgenoPC --output="job_readouts/plinkgenoPC.log" -q primary -n 5 -N 1-1 --mem=50G -t 2:00:00 --export=VCF="/rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.vcf.gz",OUT_FOLDER=$analysis"genotypePC/" src/run_pca.sh 
+#squeue -u fh8591 #check to see when job finishes
+
+#this is run per batch or on all samples
+cp /rs/rs_grp_schold/CZI/RNA/analysis/src/plink_to_PC.R src
+
+Rscript src/plink_to_PC.R $analysis $cov_file #$samples
+
+#look at PC plots for outliers
+##decided to instead just correct for PC, not remove
+##individuals to remove (ie. here removing 2 individuals that were outliers in genotype pc plus related)
+#cat > CZI1_removeind.txt
+#HO-110
+#HO-124
+#HO-114
+#cat > ALL_removeind.txt
+#HO-110
+#HO-124
+#HO-114
+#HO-116
+#HO-164
+#HO-117
+
+#QC psych variables - run once
+#make table of expected range of psycosocial variables in excel using HOLD codebook and then copy it over
+cat > /rs/rs_grp_schold/covariates/CZI_expectedrange_042024.txt
+
+Rscript src/covariates_QC.R /rs/rs_grp_schold/CZI/ /rs/rs_grp_schold/covariates/ HOLD-CZI_covariates_converted_dbgapID_key_n183_AR.txt CZI_expectedrange_042024.txt
+
+#DESeq analysis for LPS vs CTRL plus separate runs (LPS,CTRL) for age and sex, plus interaction term runs. plus added psych runs
+Rscript src/00-DESeq.R $analysis $psych_cov_file ALL_removeind.txt
+#volcano plots (all) and heatmaps (treatvsctrl)
+Rscript src/DESeq_plotting.R $analysis
