@@ -8,20 +8,32 @@ library(plyr)
 library(ggplot2)
 library(ggpubr)
 
-args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_03_04_2024.txt") #for testing
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_converted_dbgapID_key_n183_AR_18newvar_updated_08-05.txt","ALL","fastdemux") #for testing
 base <- args[1]
-outFolder=paste0(base,"pseudobulk_ctrl/")
+cov_file=fread(args[2]) #this is the psych cov file
+project=args[3]
+method=args[4]
+
+outFolder=paste0(base,method,"_pseudobulk_ctrl/")
 figuredir=paste0(outFolder,"figures/")
+
 cov_file=fread(args[2])
 var="SES"
+pov_version="nicole1"
+if(pov_version=="firstrun"){
 poverty <- fread(paste0(base,"SupplementalTable2-T1Both_DESeq_IndFiltT_BasicMod_3PCs_newrefeigen_newsamp204.txt"))
+} else if(pov_version=="nicole1") {
+  poverty <- fread(paste0(base,"handls_cole.txt"))
+  names(poverty)[2] <- "GeneSymbol"
+}
 poverty <- transform(poverty, z=qnorm(pvalue))
 poverty <- transform(poverty,z=ifelse(log2FoldChange<0, abs(z)*-1, abs(z)))
 
-filenames <- c("deseqres_SES-RNA-CTRL.txt","deseqres_SES-RNA-LPS.txt")
+filenames <- c(paste0(project,".deseqres_SES-RNA-CTRL.txt"),paste0(project,".deseqres_SES-RNA-LPS.txt"))
 data_names <- gsub(".txt", "", filenames) #remove file ending
-shortnames <- gsub("deseqres_", "", data_names)
-for(i in 1:length(filenames)) assign(shortnames[i], fread(file.path(outFolder, filenames[i]),header = FALSE, sep='\t')[,analysis:=shortnames[i]]) #read in specific files and set the df object names. can dro0p unwanted columns
+shortnames <- gsub(".deseqres_", "", data_names)
+shortnames <- gsub(project, "", shortnames)
+for(i in 1:length(filenames)) assign(shortnames[i], fread(file.path(outFolder, filenames[i]),header = TRUE, sep='\t')[,analysis:=shortnames[i]]) #read in specific files and set the df object names. can dro0p unwanted columns
 ddf <- lapply(shortnames, function(x) get(x)) #grab data from list of df names
 names(ddf) <- c(shortnames)
 df <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) 
@@ -33,6 +45,7 @@ poverty[is.na(poverty$padj),] <- 1
 
 merged <- merge(df,poverty,by=c("GeneSymbol"))
 threshold <- 0.1
+
 for (treat in unique(df$treats)){
 	merged_treat=subset(merged,treats==treat)
 merged_treat <- transform(merged_treat, sig=as.factor(ifelse(padj.x<threshold & padj.y<threshold, "4both", ifelse(padj.x<=threshold, "3SES_sig", ifelse(padj.y<=threshold, "2poverty_sig", "1Not_Sig")))))
@@ -54,7 +67,7 @@ p <- ggplot(merged_treat, aes(x=log2FoldChange.x, y=log2FoldChange.y)) +
     axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
     legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
 
-      png(width = 12, height = 12, file=paste0(figuredir,treat,".poverty_vs_ses_log2FC.png"), pointsize=12, 
+      png(width = 12, height = 12, file=paste0(figuredir,project,".",treat,".",pov_version,".poverty_vs_ses_log2FC.png"), pointsize=12, 
       bg = "transparent", canvas = "white", units = "in", res = 1200)
 print(p)
 dev.off()
@@ -74,7 +87,7 @@ p <- ggplot(merged_treat, aes(x=z.x, y=z.y)) +
     axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
     axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
     legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
-png(width = 12, height = 12, file=paste0(figuredir,treat,".poverty_vs_ses_Z.png"), pointsize=12, 
+png(width = 12, height = 12, file=paste0(figuredir,project,".",treat,".poverty_vs_ses_Z.png"), pointsize=12, 
       bg = "transparent", canvas = "white", units = "in", res = 1200)
 print(p)
 dev.off()
@@ -101,7 +114,7 @@ ns <- ldply(lapply(unique(df$cluster),function(clus){
   }),data.frame)
 
   dfn <- na.omit(df)
-  df_w <- reshape2::dcast(df_clus, GeneSymbol~treats,value.var="z")
+  df_w <- reshape2::dcast(df, GeneSymbol~treats,value.var="z")
   colnames(df_w) <- gsub("RNA-","",colnames(df_w))
   c <-cor.test(df_w$LPS,df_w$CTRL,method="spearman")
   cdf <- data.frame(rho=round(c$estimate,2),pvalue=c$p.value)
