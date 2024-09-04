@@ -5,19 +5,18 @@ library(harmony)
 
 args <- commandArgs(trailingOnly = TRUE)
 #args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","ALL","fastdemux") #for testing
+#args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","ALL","demux")
 base <- args[1]
 project <- args[2]
 method <- args[3]
 outFolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 
-basefolder=gsub("analysis/","counts_cellranger_hg38/",base)
-
 # set new output dir for filtered out unmatched figures
 figuredir=paste0(outFolder,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 
-future::plan(strategy = 'multicore', workers = 4)
+future::plan(strategy = 'multicore', workers = 2)
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
 ##############################
@@ -25,7 +24,7 @@ options(future.globals.maxSize = 30 * 1024 ^ 3)
 ### load the seurat object
 opfn_i <- file.info(dir(outFolder, full.names=T, pattern=paste0(project,".seuratObj-postmerge-after-mt-filtering.")))
 opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
-sc <- read_rds(opfn)
+sc <- readRDS(opfn)
 
 #sc <- subset(sc, subset = nFeature_RNA > 200 & nFeature_RNA < 5000 & percent.mt < 5) # could try mt<10 to increase data
 
