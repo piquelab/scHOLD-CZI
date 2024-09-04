@@ -6,7 +6,7 @@ cov_file=args[2]
 
 #read in samples file (just list of samples to run, each sample on newline)
 if(!is.na(args[4])){
-samples=read.table(args[4],header=F)
+samples=read.table(paste0(args[1],args[4]),header=F)
 samples$Batch <- sapply(strsplit(samples$V1,"-"),function(y) y[1])
 cat("samplefile=",args[4],"\n")
 project=sapply(strsplit(args[4],"_"),function(y)y[1])
@@ -21,15 +21,18 @@ cat("project=",project,"\n")
    demux <- read_rds(opfn)
    demux <- demux %>% dplyr::filter(NUM.READS>100,NUM.SNPS>100)
    demux<- transform(demux,method="demux")
+   cell.counts_demux <- demux %>% group_by(EXP,Sample_ID, BATCH, treats) %>% summarize(cell_count=n()) %>%as.data.frame()
 
    outFolder=paste0(args[1],"1_demux_alt_output/")
    opfn <- paste0(outFolder,project,".1_demux_alt_New.SNG.rds")
    fastdemux <- read_rds(opfn)
    fastdemux<- transform(fastdemux,method="fastdemux")
+   cell.counts_fastdemux <- fastdemux %>% group_by(EXP,Sample_ID, BATCH, treats) %>% summarize(cell_count=n()) %>%as.data.frame()
 
 figuredir=paste0(outFolder,"umatched_removed/")
 
 df <- merge(demux,fastdemux,by=c("NEW_BARCODE","EXP","BATCH","treats","Sample_ID"))
+df_cellcounts <- merge(cell.counts_demux,cell.counts_fastdemux,by=c("EXP","BATCH","treats","Sample_ID"))
 
 fig0 <- ggplot(df,aes(x=NUM.READS.x,y=NUM.READS.y))+
 geom_point()+
@@ -39,6 +42,19 @@ stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep
 theme_bw()
 
 figfn <- paste(figuredir, project,".demuxvsfastdemux_numreads.png", sep="")
+png(figfn, width=4000, height=4000, res=380)
+fig0
+dev.off()
+
+#number of cells
+fig0 <- ggplot(df_cellcounts,aes(x=cell_count.x,y=cell_count.y))+
+geom_point()+
+xlab("demux")+
+ylab("fastdemux")+
+stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+theme_bw()
+
+figfn <- paste(figuredir, project,".demuxvsfastdemux_numcells.png", sep="")
 png(figfn, width=4000, height=4000, res=380)
 fig0
 dev.off()
