@@ -33,5 +33,5 @@ sc <- read_rds(opfn)
 sc <- sc %>% RunUMAP(reduction = "harmony", dims = 1:dimset) 
 sc <- sc %>% FindNeighbors(reduction = "harmony", dims = 1:dimset)
 
-opfn <- paste0(outFolder,project,".seuratObj-post-umap",".",Sys.Date(),".rds")
+opfn <- paste0(outFolder,project,".seuratObj-post-umap.",dimset,".rds")
 write_rds(sc, opfn)
