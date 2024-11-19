@@ -10,9 +10,10 @@ library(DESeq2)
 args <- commandArgs(trailingOnly = TRUE)
 args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_converted_dbgapID_key_n183_AR.txt","ALL","fastdemux") #for testing
 base <- args[1]
-cov_file=fread(args[2]) #this is the psych cov file
+cov_file=fread(args[2]) #t5 is the psych cov file
 project=args[3]
 method=args[4]
+run="SES_PCs_SES_sex_age_and_treats_adjusted"
 outFolder=paste0(base,method,"_pseudobulk_ctrl/")
 figuredir=paste0(outFolder,"figures/")
 
@@ -94,22 +95,23 @@ for (cluster in clusters){
     print(p)
     dev.off()
                 #run covariates separately for each treatment condition
-    for (i in unique(dds$treats)){
-        #i <- unique(dds$treats)[1]
+    for (i in c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX")){
+        #i <- "RNA-CTRL"
         # Transform counts for data visualization
-        mclapply(c("sex","age",psychvarstorun),function(var){
+        lapply(c("sex","age","sex_age_int",psychvarstorun,"factor_HS_CRP"),function(var){
         #mclapply(psychvarstorun,function(var){
         #var="sex"
         #load(paste0(outFolder,"DESeq_output-",i,"-",var,cluster,".RData"))
+        if(isTRUE(file.size(paste0(outFolder,project,".deseqres_",var,"-",i,".",run,".txt")) > 0)){
+
         cat("running ",var,i)
-        sub.table <- fread(paste0(outFolder,project,".deseqres_",var,"-",i,".txt"))
-            colnames(sub.table) <- c('identifier', 'padj', 'pvalue', 'logFC','var','Cluster','treats')
-        sub.table <- subset(sub.table, Cluster==cluster & treats==i)
+        sub.table <- fread(paste0(outFolder,project,".deseqres_",var,"-",i,".",run,".txt"))
+        sub.table <- subset(sub.table, cluster==cluster)
         sub.table <- sub.table[order(sub.table$padj,-abs(sub.table$logFC)), ]
 
         topp1 <- min(subset(sub.table, padj > quantile(padj, prob = 1 -99/100,na.rm=T))$pvalue)
         tolab <- c(unique(head(sub.table,n=20)$identifier))
-        png(width = 8, height = 8, file=paste0(figuredir,project,".dge_volcano-",var,"-",cluster,"-",i,".png"), pointsize=12, 
+        png(width = 8, height = 8, file=paste0(figuredir,project,".dge_volcano-",var,"-",cluster,"-",i,".",run,".png"), pointsize=12, 
               bg = "transparent", units = "in", res = 1200)
         p <- EnhancedVolcano(sub.table,
           lab = sub.table$identifier,
@@ -132,6 +134,7 @@ for (cluster in clusters){
             drawConnectors = TRUE)
         print(p)
         dev.off()
+    }
         })
 }}
 
