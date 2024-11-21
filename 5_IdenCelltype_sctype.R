@@ -186,10 +186,10 @@ prop_df <- data.frame(res=as.factor(resset), nclusters=length(unique(cL_resutls_
 #*old way: then for each resolution, get the average proportion across clusters
 #*new way: then for each resolution, SUM (porportion per cluster * cluster_size/total_cells) so bigger clusters weigh more that just a simple average of the per cluster proportion.
 #old way and new way both don't have a lot of differences across resolutions. However, the new way has a tighter range and takes into account the cluster size. Based on this table, resolution 0.2 is best.
-#table of results for dimension 50:
 
 
-
+#################ABANDONDED######################################################
+################################################################################
 
     totalsumscore=sum(summajor$sumscore,na.rm=T)
     summajor=transform(summajor,correctness=sumscore/totalsumscore)
