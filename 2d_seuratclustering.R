@@ -31,7 +31,11 @@ dimset <- as.numeric(args[5])
 opfn <- paste0(outFolder,project,".seuratObj-post-umap.",dimset,".rds")
 sc <- read_rds(opfn)
 
-#for(resset in c(0.1,0.15,0.2,0.3,0.4)){
+#opfn_i <- file.info(dir(paste0(base,"2.1_mergeCellRangerAnd",method,"/"), full.names=T, pattern=paste0(project,".seuratObj-post-umap")))
+#opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
+#sc <- read_rds(opfn)
+
+for(resset in c(0.1,0.15,0.2,0.3,0.4)){
 sc <- sc %>% FindClusters(resolution = resset) %>% 
     identity()
 
@@ -117,3 +121,4 @@ png(fname,width=5000,height=3000, res=240)
     p2
     ##    theme_black()
 dev.off()
+}
