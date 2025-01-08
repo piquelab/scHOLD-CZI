@@ -62,7 +62,7 @@ opfn <- paste0(outdir,project,".seuratObj-.preharmony-sctype-",Sys.Date(),".rds"
 write_rds(sc, opfn)
 
 #harmony
-
+#the following is the old file naming convention - used to make res 0.3 dim 11 for CZI
 #opfn_i <- file.info(dir(paste0(base,"2.1_mergeCellRangerAnd",method,"/"), full.names=T, pattern=paste0(project,".seuratObj-post-clustering-res",resset)))
 #opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
 for (resset in c(0.1, 0.15, 0.2, 0.3, 0.4)){
@@ -162,6 +162,9 @@ prop_df <- data.frame(res=as.factor(resset), nclusters=length(unique(cL_resutls_
   rangeL=range(cL_resutls_perc_cl$weighted_prop)[1],rangeH=range(cL_resutls_perc_cl$weighted_prop)[2])
 }),data.frame)
 
+l_perc
+
+#example tables from ALOFT
 #dim 50
    res nclusters  sum_prop       rangeL     rangeH
 1  0.1        22 0.5013393 5.500565e-07 0.14194098
