@@ -23,7 +23,7 @@ future::plan(strategy = 'multicore', workers = 10)
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
 args <- commandArgs(trailingOnly = TRUE)
-args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_converted_dbgapID_key_n183_AR_18newvar_updated_08-05.txt","ALL","fastdemux") #for testing
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_SNI_NoP_LogDED-Trig_chronic-sum-categ_nii-mean_11_25_2024.txt","ALL","fastdemux") #for testing
 base <- args[1]
 cov_file=fread(args[2]) #this is the psych cov file
 #if(!is.na(args[3])){
@@ -39,8 +39,8 @@ figuredir=paste0(outFolder,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 #read in genotype PC (run only on current samples. if adding data, since I made the file 03/20/24 remake using plink_to_PC.R)
 eigenvec2_o <- fread(file=paste0(base,"genotypePCnokin/",project,".eigenvec_pc.txt")) #will use col PC1
-eigenvec2 <- merge(eigenvec2_o,cov_file,by.x="Sample_ID",by.y="dbgap.ID",all.x=T)
-notrun_var <- c("DSES_01","DSES_03","PWaist","PHip","SNI_NoP") #SNI_NoP is the only variable that should be excluded based on the observed issues in score distributions that don’t make sense (negative values and extreme outliers)
+eigenvec2 <- merge(eigenvec2_o[,-c("sex","sex_alph","age")],cov_file,by.x="Sample_ID",by.y="dbgap.ID",all.x=T)
+notrun_var <- c("DSES_01","DSES_03","PWaist","PHip","SNI_NoP","age","sex","sex_alph") #SNI_NoP is the only variable that should be excluded based on the observed issues in score distributions that don’t make sense (negative values and extreme outliers)
 colnumuotovar <- grep("czi_exp",colnames(eigenvec2))+1
 psychvarstorun <- eigenvec2[,colnumuotovar:length(colnames(eigenvec2))]
 psychvarstorun <- colnames(psychvarstorun)[!colnames(psychvarstorun) %in% notrun_var]
@@ -61,19 +61,20 @@ geneIDs.sex <- subset(geneIDs, chr=="Y" | chr=="X")
 geneIDs.male <- subset(geneIDs, chr=="Y" )
 geneIDs.female <- subset(geneIDs, chr=="X")
 
-opfn_i <- file.info(dir(paste0(base,"5b_IdenCelltype_",method,"/"), full.names=T, pattern=paste0(project,".seuratObj-.harmony-sctype-")))
-opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
-sc <- read_rds(opfn)
-
+#opfn_i <- file.info(dir(paste0(base,"5b_IdenCelltype_",method,"/"), full.names=T, pattern=paste0(project,".seuratObj-.harmony-sctype-")))
+#opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
+#sc <- read_rds(opfn)
+sc <- read_rds("/rs/rs_grp_schold/CZI/RNA/analysis/5b_IdenCelltype_fastdemux/ALL.seuratObj-.harmony-sctype-2024-05-15.rds")
 #from https://www.biostars.org/p/9482789/
 
 sc@meta.data$letter_clusters <- paste0("C",sc@meta.data$seurat_clusters)
 colOrd <- data.frame(NEW_BARCODE=names(sc$orig.ident))
-coldata_ex <- merge(as.data.frame(sc@meta.data),eigenvec2,by="Sample_ID",all.x=T) #first 2 columns are dbgapid ie. sampleid and batch
+coldata_ex <- merge(as.data.frame(sc@meta.data),eigenvec2,by="Sample_ID") #first 2 columns are dbgapid ie. sampleid and batch
 RcolData <- merge(colOrd, coldata_ex, by="NEW_BARCODE",all.x=T)
 RcolData <- RcolData[match(rownames(sc@meta.data), RcolData$NEW_BARCODE), ]
 sc@meta.data <-cbind(sc@meta.data,RcolData[,which(!colnames(RcolData) %in% colnames(sc@meta.data))])
-
+#sc@meta.data <- sc@meta.data[,-c(27:29)]
+#names(sc@meta.data)[22:24] <- c("age","sex","sex_alph")
 #if(!is.na(args[3])){
 #sc@meta.data$keep <- ifelse(sc@meta.data$Sample_ID %in% removeind, FALSE, TRUE)
 #sc <- subset(sc, subset = keep == TRUE)
@@ -111,16 +112,21 @@ png(paste0(figuredir,project,".box_ncount_sex_averageind.png"), width=3000, heig
 print(fig)
 dev.off()
 
-sce <- as.SingleCellExperiment(sc)
-#seurat_clusters, treats, BATCH, Library
+cellcount <- as.data.frame(table(sc@meta.data$letter_clusters, sc@meta.data$orig.ident))
+lowcell <- subset(cellcount, Freq<3000)
+if(dim(lowcell)[1]==0){cat( "no low cell counts")}else{sc <-subset(x = sc, subset = letter_clusters %in% unique(lowcell$Var1), invert = TRUE)}
 
+sce <- as.SingleCellExperiment(sc)
+opfn <- paste0(base,method,"_pseudobulk_ctrl/",project,".SingleCellExperiment.RDS")
+write_rds(sce, opfn)
+
+#seurat_clusters, treats, BATCH, Library
 #/ aggregate by cluster,library info and covariate of interest:
 sum_by <- c("letter_clusters", "BATCH","Sample_ID","treats")
 summed <- aggregateAcrossCells(sce, id=colData(sce)[,sum_by])
 
 #/ add rownames using the information from the colData:
 colnames(summed) <- apply(colData(summed)[,sum_by], 1, function(x) paste(x, collapse="_"))
-head(assay(summed, "counts"))
 raw <- assay(summed, "counts")
 
 counts_ls <- lapply(unique(summed$letter_clusters), function(i){
@@ -1231,9 +1237,21 @@ mclapply(names(counts_ls),function(cluster){
     save(adjusted_counts, file=opfn)
 })
 
+run="SES_PCs_sex_age_and_treats_generem"
+combatrun="SES_PCs_sex_age_and_treats_adjusted_generem"
 firstrunvars=c("SES","pr_comp","isel","SNI_NoP","PSS_all_mean","BPd_avg")
+updated_vars <- c("SNI_NumPeople_r", "chronic_sum_categ", "nii_mean", "LogDED", "LogTrig")
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/")
+outFolder=paste0(baseoutFolder,run,"/")
+if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
+if (!file.exists(paste0(outFolder,"stats/"))) dir.create(paste0(outFolder,"stats/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"sigDEGs/"))) dir.create(paste0(outFolder,"sigDEGs/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"deseqres/"))) dir.create(paste0(outFolder,"deseqres/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"sampleid/"))) dir.create(paste0(outFolder,"sampleid/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"sampleid_all/"))) dir.create(paste0(outFolder,"sampleid_all/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"figures/"))) dir.create(paste0(outFolder,"figures/"), showWarnings=F)
+
 lapply(names(counts_ls),function(cluster){
- #[c(7:9)] #to run clusters if job terminates part way through
     #cluster=names(counts_ls)[1]
         cat("running ", cluster, "\n")
     fdr=0.05
@@ -1243,19 +1261,23 @@ lapply(names(counts_ls),function(cluster){
     cluster_metadata <- data.frame(cluster_metadata_sce)
     cluster_metadata <- transform(cluster_metadata, treats=as.factor(treats))
     cluster_metadata <- within(cluster_metadata, treats <- relevel(treats, ref = "RNA-CTRL"))
-    opfn <- paste0(outFolder,project,".ComBat_seq.",cluster,".SES_PCs_sex_age_and_treats_adjusted.RData")
+    opfn <- paste0(baseoutFolder,project,".ComBat_seq.",cluster,".",combatrun,".RData")
     load(opfn)
+
+    d <- data.frame(number_ind=length(unique(cluster_metadata[,c("Sample_ID")])))
+    fwrite(d, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sampleid_all/",project,".",cluster,".sampleid_all.",run,".txt"))
 
     for(i in unique(cluster_metadata_sce$treats)){
             #lapply(list.df, subset, B!=2)
             #i <- "RNA-CTRL"
         cluster_metadata_t <- subset(cluster_metadata, treats==i)
-        cluster_metadata_t <- transform(cluster_metadata_t, sex_alph=as.factor(sex_alph))
+        cluster_metadata_t <- transform(cluster_metadata_t, sex_alph=as.factor(sex_alph),SNI_NumPeople_r=as.numeric(SNI_NumPeople_r))
         cluster_metadata_t <- within(cluster_metadata_t, sex_alph <- relevel(sex_alph, ref = "Male"))
 
-        mclapply(c(psychvarstorun,"factor_HS_CRP"),function(var){
-            #var="SNI_NoP"
-            if(!isTRUE(file.size(paste0(outFolder,project,".",cluster,".stats_all_cell_types-",var,"-",i,".SES_PCs_sex_age_and_treats_adjusted.txt")) > 0)){
+        mclapply(c(psychvarstorun,"age","factor_HS_CRP"),function(var){
+            #c(psychvarstorun,"factor_HS_CRP",updated_vars)
+            #var="SNI_NoP" ,"factor_HS_CRP"
+            if(!isTRUE(file.size(paste0(outFolder,"stats/",project,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){
                 cat("running deseq ",var,cluster,i," \n")
         design <-  paste0("~ PC1 + PC2 + sex_alph + age + ",var)
         if(var=="CVDRISK"){
@@ -1267,6 +1289,9 @@ lapply(names(counts_ls),function(cluster){
         cluster_metadata_t <- within(cluster_metadata_t, factor_HS_CRP <- relevel(factor_HS_CRP, ref = "average"))
         }
         cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","age",var)]
+        if(var=="age"){
+        cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph",var)]
+        }
         cluster_metadata_var <- cluster_metadata_var[which(rownames(cluster_metadata_var) %in% colnames(adjusted_counts)),]
         cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
         cluster_counts_t <- adjusted_counts[,which(colnames(adjusted_counts) %in% rownames(cluster_metadata_var))]
@@ -1276,8 +1301,10 @@ lapply(names(counts_ls),function(cluster){
                                       colData = cluster_metadata_var, 
                                       design = as.formula(design))
         dds <- DESeq(dds,parallel=TRUE)
-        opfn <- paste0(outFolder,project,".DESeq_output-",i,"-",var,cluster,".SES_PCs_sex_age_and_treats_adjusted.RDS")
+        opfn <- paste0(outFolder,project,".DESeq_output-",i,"-",var,cluster,".",run,".RDS")
         saveRDS(dds, file=opfn)
+
+        fwrite(data.frame(Sample_ID=cluster_metadata_var[,c("Sample_ID")]), sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sampleid/",project,".",cluster,".sampleid_",var,"-",i,".",run,".txt"))
 
         res <- results(dds)
         sub.table <- data.frame(res@rownames, res$'padj', res$'pvalue', res$'log2FoldChange', res$'lfcSE',stringsAsFactors=FALSE)
@@ -1287,21 +1314,23 @@ lapply(names(counts_ls),function(cluster){
         sub.table$var=var
         sub.table$cluster=cluster
         sub.table$treats =i
-        fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",cluster,".deseqres_",var,"-",i,".SES_PCs_sex_age_and_treats_adjusted.txt"))
+        fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",cluster,".deseqres_",var,"-",i,".",run,".txt"))
         sigDEGs <- subset(sub.table,padj<fdr)
         sigDEGs <- sigDEGs[order(sigDEGs$padj), ]
-        fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",cluster,".sigDEGs_",var,"-",i,".SES_PCs_sex_age_and_treats_adjusted.txt"))
+        fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",cluster,".sigDEGs_",var,"-",i,".",run,".txt"))
         table <- data.frame(symb=var, variable= var, cluster=cluster)
         table$number_samples <- paste(nrow(cluster_metadata_var))
         table$number_individuals <- paste(length(unique(cluster_metadata_var$Sample_ID)))
         table$gene_number <- paste(nrow(cluster_counts_t))
+        table$tested_genes <- paste(nrow(sub.table))
         table$DEGs_FDR <- paste(nrow(sigDEGs))
         table$DEGs_FDR_10 <- paste(nrow(subset(sub.table,padj<0.1)))
-        fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",cluster,".stats_all_cell_types-",var,"-",i,".SES_PCs_sex_age_and_treats_adjusted.txt"))
+        fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
             }
         })
     }
 })
+
 
 for (var in c("sex","age","sex_age_int",psychvarstorun,"factor_HS_CRP")){
     #for (var in c("factor_HS_CRP","CVDRISK")){
@@ -1329,7 +1358,21 @@ for (var in c("sex","age","sex_age_int",psychvarstorun,"factor_HS_CRP")){
 }
 #filter: ALL.stats_all_cell_types*.SES_PCs_sex*
 
+run="SES_PCs_SES_sex_age_and_treats_adjusted"
+combatrun="SES_PCs_sex_age_and_treats_adjusted"
 firstrunvars=c("SES","pr_comp","isel","SNI_NoP","PSS_all_mean","BPd_avg")
+updated_vars <- c("SNI_NumPeople_r", "chronic_sum_categ", "nii_mean", "LogDED", "LogTrig")
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/")
+combatfolder=paste0(baseoutFolder,"combat_sessexagetreatpcs/")
+outFolder=paste0(baseoutFolder,run,"/")
+if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
+if (!file.exists(paste0(outFolder,"stats/"))) dir.create(paste0(outFolder,"stats/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"sigDEGs/"))) dir.create(paste0(outFolder,"sigDEGs/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"deseqres/"))) dir.create(paste0(outFolder,"deseqres/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"sampleid/"))) dir.create(paste0(outFolder,"sampleid/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"sampleid_all/"))) dir.create(paste0(outFolder,"sampleid_all/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"figures/"))) dir.create(paste0(outFolder,"figures/"), showWarnings=F)
+
 lapply(names(counts_ls),function(cluster){
  #[c(7:9)] #to run clusters if job terminates part way through
     #cluster=names(counts_ls)[1]
@@ -1341,19 +1384,23 @@ lapply(names(counts_ls),function(cluster){
     cluster_metadata <- data.frame(cluster_metadata_sce)
     cluster_metadata <- transform(cluster_metadata, treats=as.factor(treats))
     cluster_metadata <- within(cluster_metadata, treats <- relevel(treats, ref = "RNA-CTRL"))
-    opfn <- paste0(outFolder,project,".ComBat_seq.",cluster,".SES_PCs_sex_age_and_treats_adjusted.RData")
+    opfn <- paste0(combatfolder,project,".ComBat_seq.",cluster,".",combatrun,".RData")
     load(opfn)
+
+    d <- data.frame(number_ind=length(unique(cluster_metadata[,c("Sample_ID")])))
+    fwrite(d, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sampleid_all/",project,".",cluster,".sampleid_all.",run,".txt"))
+
 
     for(i in unique(cluster_metadata_sce$treats)){
             #lapply(list.df, subset, B!=2)
             #i <- "RNA-CTRL"
         cluster_metadata_t <- subset(cluster_metadata, treats==i)
-        cluster_metadata_t <- transform(cluster_metadata_t, sex_alph=as.factor(sex_alph))
+        cluster_metadata_t <- transform(cluster_metadata_t, sex_alph=as.factor(sex_alph),SNI_NumPeople_r=as.numeric(SNI_NumPeople_r))
         cluster_metadata_t <- within(cluster_metadata_t, sex_alph <- relevel(sex_alph, ref = "Male"))
 
-        mclapply(c(psychvarstorun,"factor_HS_CRP"),function(var){
-            #var="SNI_NoP"
-            if(!isTRUE(file.size(paste0(outFolder,project,".",cluster,".stats_all_cell_types-",var,"-",i,".SES_PCs_SES_sex_age_and_treats_adjusted.txt")) > 0)){
+        lapply(updated_vars,function(var){
+            #var="SNI_NoP" ,"factor_HS_CRP"
+            if(!isTRUE(file.size(paste0(outFolder,"stats/",project,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){
                 cat("running deseq ",var,cluster,i," \n")
         design <-  paste0("~ PC1 + PC2 + sex_alph + age + SES + ",var)
         if(var=="SES"){
@@ -1380,8 +1427,10 @@ lapply(names(counts_ls),function(cluster){
                                       colData = cluster_metadata_var, 
                                       design = as.formula(design))
         dds <- DESeq(dds,parallel=TRUE)
-        opfn <- paste0(outFolder,project,".DESeq_output-",i,"-",var,cluster,".SES_PCs_SES_sex_age_and_treats_adjusted.RDS")
+        opfn <- paste0(outFolder,project,".DESeq_output-",i,"-",var,cluster,".",run,".RDS")
         saveRDS(dds, file=opfn)
+
+        fwrite(data.frame(Sample_ID=cluster_metadata_var[,c("Sample_ID")]), sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sampleid/",project,".",cluster,".sampleid_",var,"-",i,".",run,".txt"))
 
         res <- results(dds)
         sub.table <- data.frame(res@rownames, res$'padj', res$'pvalue', res$'log2FoldChange', res$'lfcSE',stringsAsFactors=FALSE)
@@ -1391,47 +1440,155 @@ lapply(names(counts_ls),function(cluster){
         sub.table$var=var
         sub.table$cluster=cluster
         sub.table$treats =i
-        fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",cluster,".deseqres_",var,"-",i,".SES_PCs_SES_sex_age_and_treats_adjusted.txt"))
+        fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",cluster,".deseqres_",var,"-",i,".",run,".txt"))
         sigDEGs <- subset(sub.table,padj<fdr)
         sigDEGs <- sigDEGs[order(sigDEGs$padj), ]
-        fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",cluster,".sigDEGs_",var,"-",i,".SES_PCs_SES_sex_age_and_treats_adjusted.txt"))
+        fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",cluster,".sigDEGs_",var,"-",i,".",run,".txt"))
         table <- data.frame(symb=var, variable= var, cluster=cluster)
         table$number_samples <- paste(nrow(cluster_metadata_var))
         table$number_individuals <- paste(length(unique(cluster_metadata_var$Sample_ID)))
         table$gene_number <- paste(nrow(cluster_counts_t))
+        table$tested_genes <- paste(nrow(sub.table))
         table$DEGs_FDR <- paste(nrow(sigDEGs))
         table$DEGs_FDR_10 <- paste(nrow(subset(sub.table,padj<0.1)))
-        fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",cluster,".stats_all_cell_types-",var,"-",i,".SES_PCs_SES_sex_age_and_treats_adjusted.txt"))
+        fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
             }
         })
     }
 })
 
-for (var in c("sex","age","sex_age_int",psychvarstorun,"factor_HS_CRP")){
-    #for (var in c("factor_HS_CRP","CVDRISK")){
+#combine output per cluster
+sub.table <- ldply(lapply(names(counts_ls), function(cluster){
+        if(file.exists(paste0(outFolder,"sampleid_all/",project,".",cluster,".sampleid_all.",run,".txt"))){
+        sub.table <- fread(paste0(outFolder,"sampleid_all/",project,".",cluster,".sampleid_all.",run,".txt"),header=T)
+        }
+        sub.table <- transform(sub.table,cluster=cluster)
+        }),data.frame)
+fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sampleid_all/",project,".sampleid_all_combtreat.",run,".txt"))
+
+for (var in c("age",psychvarstorun,"factor_HS_CRP")){ #"sex","sex_age_int"
+    #for (var in c(firstrunvars[c(5:10)],"age")){
     for (i in c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX")){
         cat("running ",var," ",i,"\n")
     sub.table <- ldply(lapply(names(counts_ls), function(cluster){
-        if(file.exists(paste0(outFolder,project,".",cluster,".deseqres_",var,"-",i,".SES_PCs_SES_sex_age_and_treats_adjusted.txt"))){
-        sub.table <- fread(paste0(outFolder,project,".",cluster,".deseqres_",var,"-",i,".SES_PCs_SES_sex_age_and_treats_adjusted.txt"),header=T)
+        if(file.exists(paste0(outFolder,"sampleid/",project,".",cluster,".sampleid_",var,"-",i,".",run,".txt"))){
+        sub.table <- fread(paste0(outFolder,"sampleid/",project,".",cluster,".sampleid_",var,"-",i,".",run,".txt"),header=T)
         }
         }),data.frame)
-    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".deseqres_",var,"-",i,".SES_PCs_SES_sex_age_and_treats_adjusted.txt"))
+    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sampleid/",project,".sampleid_",var,"-",i,".",run,".txt"))
     sub.table <- ldply(lapply(names(counts_ls), function(cluster){
-        if(file.exists(paste0(outFolder,project,".",cluster,".sigDEGs_",var,"-",i,".SES_PCs_SES_sex_age_and_treats_adjusted.txt"))){
-        sub.table <- fread(paste0(outFolder,project,".",cluster,".sigDEGs_",var,"-",i,".SES_PCs_SES_sex_age_and_treats_adjusted.txt"),header=T)
+        if(file.exists(paste0(outFolder,"deseqres/",project,".",cluster,".deseqres_",var,"-",i,".",run,".txt"))){
+        sub.table <- fread(paste0(outFolder,"deseqres/",project,".",cluster,".deseqres_",var,"-",i,".",run,".txt"),header=T)
+        }
+        }),data.frame)
+    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".deseqres_",var,"-",i,".",run,".txt"))
+    sub.table <- ldply(lapply(names(counts_ls), function(cluster){
+        if(file.exists(paste0(outFolder,"sigDEGs/",project,".",cluster,".sigDEGs_",var,"-",i,".",run,".txt"))){
+        sub.table <- fread(paste0(outFolder,"sigDEGs/",project,".",cluster,".sigDEGs_",var,"-",i,".",run,".txt"),header=T)
         }    
     }),data.frame)
-    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".sigDEGs_",var,"-",i,".SES_PCs_SES_sex_age_and_treats_adjusted.txt"))
+    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".sigDEGs_",var,"-",i,".",run,".txt"))
     sub.table <- ldply(lapply(names(counts_ls), function(cluster){
-        if(file.exists(paste0(outFolder,project,".",cluster,".stats_all_cell_types-",var,"-",i,".SES_PCs_SES_sex_age_and_treats_adjusted.txt"))){
-        sub.table <- fread(paste0(outFolder,project,".",cluster,".stats_all_cell_types-",var,"-",i,".SES_PCs_SES_sex_age_and_treats_adjusted.txt"),header=T)
+        if(file.exists(paste0(outFolder,"stats/",project,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt"))){
+        sub.table <- fread(paste0(outFolder,"stats/",project,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt"),header=T)
         }
     }),data.frame)
-    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".stats_all_cell_types-",var,"-",i,".SES_PCs_SES_sex_age_and_treats_adjusted.txt"))
+    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
     }
 }
 #filter: ALL.stats_all_cell_types*.SES_PCs_SES_*
 
+################## UNDER CONSTRUCTION ##########################
+#################################################################
 
+#automated table making
+#- top is cluster; sub top is num ind. | num genes | num DEG
+#- side is variable
+#one per each treatment
+# assign variabeles
+# assign variabeles
+variables <- c("DSES_07","DSES_09","FCDEM_12","chronic_sum","smoke","CVDRISK",
+                "HS_CRP","il6","PSQI_total","HVS_mean","EDS_mean","SES","LogCRP","Logifny","Logil10","Logil12",
+                "Logil13","Logil1b","Logil2","Logil4","Logil6","Logil8","Logtnfa","cytocomp","NAIscr2019","NAIscr2017",
+                "LQ2019","StressSev","StressCount","NII_mean","NII_fam","SLS","LivingAlone","SNI_HCG","SNI_NoP","PSS_all_mean",
+                "DED_all_mean","Chol","Trig","Chol_HDL","Chol_Ratio","Chol_LDL","HbA1C","BPs_avg","BPd_avg","isel", "pr_comp",
+                "SNI_NumPeople_r","LogDED","LogTrig","chronic_sum_categ","nii_mean",
+                "age","factor_HS_CRP"
+                )
+ 
+variable_names <- c("Participant's highest level of education","Pre-tax household income","Are you currently taking any prescription medications",
+                    "Total number of chronic conditions","Smoking status","Cardiovascular disease risk",
+                    "High Sensitivity CRP (mg/L) raw values","IL-6 raw values","Total sleep score (PSQI)","Vigilance Scale - Mean","Everyday Discrimination Scale - Mean",
+                    "SES composite [mean(ZDSES_07, ZDSES_09)]","LogCRP","Logifny","Logil10","Logil12",
+                    "Logil13","Logil1b","Logil2","Logil4","Logil6",
+                    "Logil8","Logtnfa","Cytokines composite [mean(ZLogtnfa, ZLogi6, ZLogifny)]","Neighborhood Adversity Score","Neighborhood Adversity Score",
+                    "Neighborhood Segregation Score","Core: Total Severity of Stressors","Core: Total Count of Stressors","Negative interactions mean","Negative interactions with family","Avg on loneliness scale",
+                    "Dichotomous variable measuring living alone (1 = living alone)","High contact groups: number of categories of social groups p interacted with at least once every two weeks",
+                    "This is the mean score representing the number of people with whom the respondent has regular contact","Mean of daily pss measures","Daily experience of discrimination cumulative average",
+                    "Cholesterol in mg/dL","Triglycerides in mg/dL","HDL Cholesterol in mg/dL","CHOL/HDL ratio","LDL Cholesterol in mg/dL",
+                    "Glycated HGB Affinity HPLC HbA1C","Average systolic blood pressure (wonky BP3_s measure corrected)","Average diastolic blood pressure","social support","psychological resources composite",
+                    "number of pople in contact with","Log of Daily Discrimination", "LogTrig", "Chronic conditions transformed", "Negative interactions mean",
+                    "age","High Sensitivity CRP (mg/L) factorized 1 to 5"
+                    )
+
+
+
+
+# Variables to loop over
+variablesL <- c("DSES_09","chronic_sum","SES", "Logifny", "Logil4", "Logtnfa", "cytocomp",
+                "PSS_all_mean", "Chol_HDL", "BPd_avg", "isel", "pr_comp", "SNI_NumPeople_r", "LogDED", "LogTrig", "chronic_sum_categ", "nii_mean") 
+
+
+
+variable_namesL <- c("Income", "Chronic conditions","SES composite", "Logifny", "Logil4", "Logtnfa", "Cytokines composite", 
+                    "Perceived Stress Scale", "HDL Cholesterol", "Diastolic blood pressure","social support","psychological resources composite", 
+                    "number of pople in contact with", "Log of Daily Discrimination", "LogTrig", "Chronic conditions transformed", "Negative interactions mean")
+
+
+variables_df <- data.frame(variable=variables, description=variable_names)
+
+library(flextable)
+library(ftExtra)
+library(rlist)
+#[!psychvarstorun %in% puberty]
+for (i in c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX")){
+subvars <- ldply(lapply(variables_df$variable, function(var){
+    cat("running",i,var,"\n")
+    if(isTRUE(file.size(paste0(outFolder,"stats/",project,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){
+    stats <- fread(paste0(outFolder,"stats/",project,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
+    if(dim(subset(stats, DEGs_FDR_10>50))[1]<1){ #first subset variables that have at least one cluster with 50DEGs
+        cat("not enough DEGs","\n")
+        rm(stats)
+        } else{
+        deseqres <- fread(paste0(outFolder,"deseqres/",project,".deseqres_",var,"-",i,".",run,".txt"),select=c(1,7))
+        df <- ddply(deseqres, "cluster", plyr::summarize, ngenes=length(unique(identifier)))
+        newls <- lapply(names(counts_ls),function(c){
+            stats_c <- subset(stats,cluster==c)
+            dc <- subset(df, cluster==c)
+            d <- data.frame(numind=stats_c$number_individuals, ngenes=dc$ngenes,sigDEGs=stats_c$DEGs_FDR_10)
+            colnames(d) <- paste(c,colnames(d),sep=".")
+            return(d)
+            })
+            newtable <- data.frame(variable=var, description=variables_df[variables_df$variable==var,]$description,list.cbind(newls))
+            return(newtable)
+        }
+    } 
+}),data.frame)
+
+dft <- subvars %>% flextable() %>% span_header()
+dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
+flextable::save_as_image(
+  dft,
+  path = paste0(outFolder,"figures/",project,".",i,".",run,".png"))
+
+degcols <- grep("sigDEGs",colnames(subvars))
+#subsubvars <- subvars[,!grepl(paste(c(sapply(strsplit(colnames(subvars[,degcols[ apply(subvars[,degcols],MARGIN=2,FUN=max)<50]]),"[.]"),function(y) y[1]),"NA"),collapse="[.]|"),colnames(subvars))]
+subsubvars <- subvars[,!grepl(paste(c(sapply(strsplit(names(which(apply(subvars[,degcols],MARGIN=2,FUN=max)<50)),"[.]"),function(y)y[1]),NA),collapse="[.]|"),colnames(subvars))]
+dft <- subsubvars %>% flextable() %>% span_header()
+dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
+
+flextable::save_as_image(
+  dft,
+  path = paste0(outFolder,"figures/",project,".",i,".",run,".50degs.png"))
+}
 
