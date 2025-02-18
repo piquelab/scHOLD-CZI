@@ -87,26 +87,30 @@ all_counts_bed <- fread("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/
 clusters <- names(counts_ls)
 treatments <- unique(metadata_ls[[1]]$treats)
 lapply(clusters,function(clus){
-  lapply(gsub("-",".",treatments),function(i){
+for (clus in clusters){
+  for (i in gsub("-",".",treatments)){
     cat("running ",clus,i)
-    colsclus <- colnames(all_counts_bed)[grepl(clus,colnames(all_counts_bed))]
-    colstreat <- colsclus[grepl(i,colsclus)]
-    cols <- grepl(paste0(colstreat,collapse="|"),colnames(all_counts_bed))
+    colsclus <- colnames(all_counts_bed)[grepl(paste0("^",clus,"_"),colnames(all_counts_bed))]
+    colstreat <- colsclus[grepl(paste0(i,"$"),colsclus)]
+    cols <- grepl(paste0(colstreat,collapse="$|"),colnames(all_counts_bed))
     df_cols <- all_counts_bed[,..cols]
     colnames(df_cols) <- gsub("[.]","-",colnames(df_cols))
     colnames(df_cols) <- sapply(strsplit(colnames(df_cols),"_"),function(y)y[3])
     df <- unique(cbind(all_counts_bed[,c(1:4)],df_cols))
     df[is.na(df)] <- 0
+    #write.table(df,sep='\t', quote=F, row.names=F, col.names=T, file=paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/phenotypes_fastqtl.",clus,".",i,".bed"))
     fwrite(df, sep='\t', quote=F, row.names=F, col.names=T, file=paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/phenotypes_fastqtl.",clus,".",i,".bed"))
     samples <- data.frame(samples=colnames(df[,-c(1:4)]))
     fwrite(samples, sep='\t', quote=F, row.names=F, col.names=F, file=paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/sample_list_fastqtl.",clus,".",i,".txt"))
-  })
-})
+  }
+}
+
+#test <- table(colnames(df_cols))>1
 
 #Sample IDs are specified in the header line. This line needs to start with a hash key (i.e. #).
 module swap gnu9 gnu7/7.3.0
 module load bedtools/2.25.0
-for i in `ls -1 /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/phenotypes_fastqtl.*.bed | grep -v 'sort'`; do
+for i in `ls -1 /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/phenotypes_fastqtl.*.residuals_qnorm.bed | grep -v 'sort'`; do
   echo "running " $i
   less $i | awk 'NR == 1{print "#"$0;next}; NR > 1 {print $0 | "sortBed -i"}' > ${i%.*}.sort.bed
   bgzip ${i%.*}.sort.bed && tabix -p bed ${i%.*}.sort.bed.gz
@@ -119,9 +123,12 @@ First column gives the covariate ID and each additional one corresponds to a sam
 The file should have S+1 rows and C+1 columns where S and C are the numbers of samples and covariates, respectively.
 
 # transpose
-u_eigenvec2 <- fread("/rs/rs_grp_scaloft/scALOFT_2024/covariates/eigenvec2_u.txt")
+u_eigenvec2 <- unique(fread("/rs/rs_grp_scaloft/scALOFT_2024/covariates/eigenvec2_u.txt"))
 #now testing subsetting the cov file to essential covariates
-u_eigenvec2 <- u_eigenvec2[,c("Sample_ID","Wave","genPC1","genPC2","genPC3","Sex","cage1","pincme")]
+#u_eigenvec2 <- u_eigenvec2[,c("Sample_ID","Wave","genPC1","genPC2","genPC3","Sex","cage1","pincme")]
+u_eigenvec2 <- u_eigenvec2 %>% dplyr::select(-c(BATCH,Sex,cage1,Wave,genPC1,genPC2,genPC3,SCAIP1_6_genPC1,SCAIP1_6_genPC2,SCAIP1_6_genPC3,genPC1_pub,genPC2_pub,genPC3_pub,genPC1_old,genPC2_old,genPC3_old,csex1,wave_old))
+design_expanded <- model.matrix(~0+ as.factor(cv_d$Sex) + as.numeric(cv_d$cage1) + factor(cv_d$Wave) + as.numeric(cv_d$genPC1) + as.numeric(cv_d$genPC2) +as.numeric(cv_d$genPC3) )
+
 t_eigenvec2 <- transpose(u_eigenvec2)
 # get row and colnames in order
 colnames(t_eigenvec2) <- u_eigenvec2$Sample_ID
@@ -139,11 +146,11 @@ cv <- fread("/rs/rs_grp_scaloft/scALOFT_2024/covariates/covfile_fastqtl_sub.txt"
 ind1 <- colnames(cv)[-1]
 
 ### bed file phenotypes_fastqtl.C9.PHA.fh.sort.bed.gz
-phe <- fread("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/phenotypes_fastqtl.C0.CTRL.sort.bed.gz",header=T)
+phe <- fread("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/phenotypes_fastqtl.C0.CTRL.residuals_qnorm.sort.bed.gz",header=T)
 ind2 <- colnames(phe)[5:length(phe)]
 
 ## vcf file
-ind3 <- fread("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/sample_list_fastqtl.C0.CTRL.txt", header=F)$V1
+ind3 <- fread("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/sample_list_fastqtl.C0.CTRL.txt", header=F)$V1
 
 identical(ind1, ind2)
 identical(ind2, ind3)
@@ -157,22 +164,133 @@ ind1 <- colnames(fixind1)[-1]
 #fwrite(fixind1, sep='\t', quote=F, row.names=F, col.names=T, file="/rs/rs_grp_scaloft/scALOFT_2024/covariates/covfile_fastqtl_fixedindorder.txt")
 fwrite(fixind1, sep='\t', quote=F, row.names=F, col.names=T, file="/rs/rs_grp_scaloft/scALOFT_2024/covariates/covfile_fastqtl_sub_fixedindorder.txt")
 
+fixind1 <- fread("/rs/rs_grp_scaloft/scALOFT_2024/covariates/covfile_fastqtl_fixedindorder.txt", header=T,data.table=F)
+ind1 <- colnames(fixind1)[-1]
+identical(ind1, ind2)
+identical(ind1,ind3)
+
 mkdir fastQTL
 #moved files into here since it was more than I th0ought
-#for i in $(seq 1 30); do
-#for j in $(seq 1 30); do
-j=1
-cluster="C0"
+mkdir fastQTL/covariates
+mkdir fastQTL/nominal
+mkdir fastQTL/permutations
+mkdir fastQTL/results
+mkdir fastQTL/results/figures
+
+#had 1-30 PCs but unnecessary to do that many
 treat="CTRL"
-    sbatch -q primary -N1-1 -n 2 --mem=12G -t 10000 --job-name=$cluster.$treat.chunk$j \
+for cluster in `awk 'NR>2{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+  for i in $(seq 1 20); do head -n $(($i+1)) /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/PCcovariates-FastQTL.$cluster.$treat.txt > /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/covariates/$cluster.$treat.PC1-$i.covariates-FastQTL.txt; done
+done
+#cluster="C0"
+for cluster in `awk 'NR>10{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+#for cluster in `awk 'NR>1&&NR<7{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+#for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+echo running $cluster
+for i in $(seq 1 20); do
+for j in $(seq 1 30); do
+#i=1
+#j=1
+FILENAME=/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/permutations/$cluster.$treat.PC1-$i.permutations.chunk$j.txt.gz
+#FILESIZE=$(stat -c%s "$FILENAME")
+if [[ $(wc -l <$FILENAME) -ge 2 ]];then
+#if (( FILESIZE > 2)); then
+echo already run $cluster.$treat.PC$i.chunk$j
+else 
+sbatch -q primary -N1-1 -n 2 --mem=12G -t 10000 --job-name=$cluster.$treat.PC$i.chunk$j \
     --wrap "module load misc2; \
     fastQTL --vcf /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.filtered.vcf.gz \
-    --bed /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/phenotypes_fastqtl_sub.$cluster.$treat.sort.bed.gz \
-    --permute 1000 10000 --window 1e5 --out /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/$cluster.$treat.permutations.chunk$j.txt.gz \
-    --cov /rs/rs_grp_scaloft/scALOFT_2024/covariates/covfile_fastqtl_sub_fixedindorder.txt \
-    --chunk $j 300"
-#sleep 1
-#done
+    --bed /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/phenotypes_fastqtl.$cluster.$treat.residuals_qnorm.sort.bed.gz \
+    --permute 1000 10000 --window 1e6 \
+    --out /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/permutations/$cluster.$treat.PC1-$i.permutations.chunk$j.txt.gz \
+    --cov /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/covariates/$cluster.$treat.PC1-$i.covariates-FastQTL.txt \
+    --chunk $j 30"
+sleep 1
+fi
+done
+done
+echo finished submitting $cluster
+sleep 2000 #30ish min wait to try and not hit the max jobs limit -- may still be an issue
+done
+
+#combine output
+#for cluster in `awk 'NR>1&&NR<7{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+echo running $cluster
+for i in $(seq 1 20); do
+for j in $(seq 1 30); do
+     zcat  /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/permutations/$cluster.$treat.PC1-$i.permutations.chunk$j.txt.gz
+done | gzip -c >  /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/permutations/$cluster.$treat.PC1-$i.permutations.eQTL.txt.gz;
+done
+done
+#run fastqtl_chosebestPCs.R
+
+#Also run no PCs (for interaction later)
+treat="CTRL"
+for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+echo running $cluster
+for j in $(seq 1 30); do
+  sbatch -q primary -N1-1 -n 2 --mem=12G -t 10000 --job-name=$cluster.$treat.PC0.chunk$j \
+    --wrap "module load misc2; \
+   fastQTL \
+      --permute 1000 10000 --window 1e6 \
+      --vcf /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.filtered.vcf.gz \
+      --bed /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/phenotypes_fastqtl.$cluster.$treat.residuals_qnorm.sort.bed.gz \
+      --out /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/permutations/$cluster.$treat.PC0.permutations.chunk$j.txt.gz \
+      --chunk ${j} 30"
+      sleep 1
+done
+echo finished submitting $cluster
+done
+#combine output
+#for cluster in `awk 'NR>1&&NR<7{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+echo running $cluster
+for j in $(seq 1 30); do
+     zcat  /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/permutations/$cluster.$treat.PC0.permutations.chunk$j.txt.gz
+done | gzip -c >  /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/permutations/$cluster.$treat.PC0.permutations.eQTL.txt.gz;
+done
+
+#i=`less fastQTL/bestPCs_table.txt | awk -v pat="$cluster\$" '$1~pat{print $2}'` #this grabs the best PC number
+
+#################
+###################
+#Also run no PCs (for interaction later)
+   fastQTL \
+      --vcf /wsu/home/groups/piquelab/SCAIP/vcf/SCAIP1-6_filtered_AF.vcf.gz \
+      --bed ./1_normalized.data/${cell}_${treat}.bed.gz \
+      --out ${outfn}.nominals.chunk${j}.txt.gz --window 1e6 --chunk ${j} 30
+
+
+
+
+
+
+
+
+find /wsu/home/groups/piquelab/IBD_eQTL/ -name "IBD_Rectum.bed.gz"
+
+
+#final run
+mkdir fastQTL/bestPCout
+for i in {1..30}; do
+     sbatch -q express -p erprp --mem=10G --time=24:00:00 -N 1-1 -n 1 --job-name=$cluster.$treat.${i} --out=slurm_fastQTL_chunk.$cluster.$treat.${i}.output --wrap "
+     module load misc;
+     fastQTL --vcf /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.filtered.vcf.gz --bed IBD_Rectum.bed.gz --out /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/bestPCout/$cluster.$treat.nominals_chunk${i}.txt.gz --window 1e6 --chunk ${i} 30 \
+     --cov /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/covariates/$cluster.$treat.PC1-8.covariates-FastQTL.txt "
+     sleep 1;
+done
+
+
+
+#############################
+##############################
+for j in $(seq 1 30); do
+     zcat  output/PC1-0.permutations.chunk$j.txt.gz
+done | gzip -c >  output/PC1-0.permutations.eQTL.txt.gz
+
+
+
 
 prob <- phe[phe$ensgene=="ENSG00000188976",]
 png(width = 12, height = 12, file=paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/ENSG00000188976.hist.png"), pointsize=12, 
