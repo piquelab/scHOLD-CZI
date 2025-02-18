@@ -1,6 +1,7 @@
 library(cowplot)
 library(EnhancedVolcano)
 library(ggcorrplot)
+library(ggpubr)
 library(data.table)
 library(plyr)
 library(parallel)
@@ -280,8 +281,92 @@ png(width = 12, height = 12, file=paste0(figuredir,project,".CRP_box.png"), poin
 print(p)
 dev.off()
 
+#why are only higher clusters (fewer cells) showing DEGs
+#zscore all clusters for PHA cdres
+run="income_PCs_sex_age_and_treats_adjusted_withWave"
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/")
+outFolder=paste0(baseoutFolder,run,"/")
+figuredir=paste0(outFolder,"figures/")
+i="PHA"
+var="cdres"
+deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
+deseqres <- transform(deseqres, zscore=logFC/SE,sig=ifelse(padj<0.1,"sig","not_sig"))
+deseqres <- deseqres[order(deseqres$padj,-abs(deseqres$logFC)),]
+top20genes <- head(deseqres,n=20)
+dge_top <- deseqres[deseqres$identifier %in% top20genes$identifier, ]
 
+top10m <- reshape2::dcast(identifier ~ cluster, data=dge_top, value.var="zscore",fun.aggregate=mean,na.rm=T)
+rownames(top10m) <- top10m$identifier
+myMat <- top10m[,-1]
+top10p <- reshape2::dcast(identifier ~ cluster, data=dge_top, value.var="padj",fun.aggregate=mean,na.rm=T)
+rownames(top10p) <- top10p$identifier
+pMat <- top10p[,-1]
 
+myMat[is.na(pMat)] <- NA
+pMat[is.na(myMat)] <- NA
+
+png(width = 17, height = 8, file=paste0(figuredir,project,".",resset,".",dimset,".",var,"-",i,".",run,".zscore_heatmap.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 1200)
+par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
+ggcorrplot(myMat, method = "square", outline.col = "grey", ggtheme = ggplot2::theme_bw(), lab = TRUE, lab_size=2, insig = "pch",pch=4,p.mat = pMat, sig.level=0.1,digits = 1) +
+scale_fill_gradient2(low = "blue", high =  "red", mid = "white", midpoint = 0)
+dev.off()
+
+# Function to get asteriks
+labs.function = function(x){
+  case_when(x >= 0.1 ~ "",
+            x < 0.1 & x >= 0.05 ~ "*",
+            x < 0.05 & x >= 0.01 ~ "**",
+            x < 0.01 ~ "***")
+}
+
+# Get asteriks matrix based on p-values
+p.labs = pMat  %>%                      
+  mutate_all(labs.function)
+
+# Reshaping asteriks matrix to match ggcorrplot data output
+p.labs$Var1 = as.factor(rownames(p.labs))
+p.labs = melt(p.labs, id.vars = "Var1", variable.name = "Var2", value.name = "lab")
+
+# Initial ggcorrplot
+cor.plot = ggcorrplot(myMat, lab = TRUE, lab_size=2,digits = 1)+scale_fill_gradient2(low = "blue", high =  "red", mid = "white", midpoint = 0)
+
+# Subsetting asteriks matrix to only those rows within ggcorrplot data
+p.labs$in.df = ifelse(is.na(match(paste0(p.labs$Var1, p.labs$Var2), 
+                                  paste0(cor.plot[["data"]]$Var1, cor.plot[["data"]]$Var2))),
+                      "No", "Yes")
+
+p.labs = select(filter(p.labs, in.df == "Yes"), -in.df)
+
+# Add asteriks to ggcorrplot
+cor.plot.labs = cor.plot + 
+  geom_text(aes(x = p.labs$Var1, 
+                y = p.labs$Var2), 
+            label = p.labs$lab, 
+            nudge_y = 0.25, 
+            size = 5)
+
+png(width = 17, height = 8, file=paste0(figuredir,project,".",resset,".",dimset,".",var,"-",i,".",run,".zscore_heatmap.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 1200)
+par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
+print(cor.plot.labs)
+dev.off()
+
+#, p.mat = pMat, sig.level=0.1
+p <- ggplot(deseqres, aes(x=cluster, y=zscore)) +
+  theme_bw()+
+  geom_point(aes(color=sig))+ #aes(color=sig)
+  geom_hline(yintercept = 0)+
+#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+png(width = 12, height = 12, file=paste0(figuredir,project,".",resset,".",dimset,".",var,"-",i,".",run,".zscore_scatter.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 1200)
+print(p)
+dev.off()
 
 ####################################### not updated
 ##################################################
