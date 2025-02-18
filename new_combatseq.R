@@ -23,7 +23,7 @@ future::plan(strategy = 'multicore', workers = 10)
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
 args <- commandArgs(trailingOnly = TRUE)
-args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_SNI_NoP_LogDED-Trig_chronic-sum-categ_nii-mean_11_25_2024.txt","ALL","fastdemux",11,0.2) #for testing
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_chronic_cond_added_02_07_2024.txt","ALL","fastdemux",11,0.2) #for testing
 base <- args[1]
 cov_file=fread(args[2]) #this is the psych cov file
 project=args[3]
@@ -45,15 +45,14 @@ psychvarstorun <- colnames(psychvarstorun)[!colnames(psychvarstorun) %in% notrun
 focus_vars <-c("factor_HS_CRP","HS_CRP","PSQI_total","HVS_mean","EDS_mean","SES","LogCRP","cytocomp","SLS","PSS_all_mean","DED_all_mean","Chol_HDL","Chol_LDL","BPs_avg","BPd_avg")
 
 # Variables to focus on
-variablesL <- c("DSES_09","chronic_sum","SES","cytocomp","PSS_all_mean", "Chol_HDL", "BPd_avg", "isel", "pr_comp", 
-    "SNI_NumPeople_r", "LogDED", "LogTrig", "nii_mean") 
+variablesL <- c("DSES_09","chronic_sum","SES","cytocomp","PSS_all_mean", "Chol_HDL", "BPd_avg", "isel", "pr_comp") 
 
 variables <- c("DSES_07","DSES_09","FCDEM_12","chronic_sum","smoke","CVDRISK",
                 "HS_CRP","il6","PSQI_total","HVS_mean","EDS_mean","SES","LogCRP","Logifny","Logil10","Logil12",
                 "Logil13","Logil1b","Logil2","Logil4","Logil6","Logil8","Logtnfa","cytocomp","NAIscr2019","NAIscr2017",
                 "LQ2019","StressSev","StressCount","nii_mean","NII_fam","SLS","LivingAlone","SNI_HCG","SNI_NoP","PSS_all_mean",
                 "DED_all_mean","Chol","Trig","Chol_HDL","Chol_Ratio","Chol_LDL","HbA1C","BPs_avg","BPd_avg","isel", "pr_comp",
-                "SNI_NumPeople_r","LogDED","LogTrig","chronic_sum_categ","nii_mean",
+                "SNI_NumPeople_r","LogDED","LogTrig","chronic_sum_categ",
                 "age","factor_HS_CRP"
                 )
  
@@ -68,11 +67,20 @@ variable_names <- c("Participant's highest level of education","Pre-tax househol
                     "This is the mean score representing the number of people with whom the respondent has regular contact","Mean of daily pss measures","Daily experience of discrimination cumulative average",
                     "Cholesterol in mg/dL","Triglycerides in mg/dL","HDL Cholesterol in mg/dL","CHOL/HDL ratio","LDL Cholesterol in mg/dL",
                     "Glycated HGB Affinity HPLC HbA1C","Average systolic blood pressure (wonky BP3_s measure corrected)","Average diastolic blood pressure","social support","psychological resources composite",
-                    "number of pople in contact with","Log of Daily Discrimination", "LogTrig", "Chronic conditions transformed", "Negative interactions mean",
+                    "number of pople in contact with","Log of Daily Discrimination", "LogTrig", "Chronic conditions transformed",
                     "age","High Sensitivity CRP (mg/L) factorized 1 to 5"
                     )
+
+
 variables_df <- data.frame(variable=variables, description=variable_names)
-variables_df <- subset(variables_df, !variable %in% c("SNI_NoP"))
+variables_df2 <- subset(variables_df, !variable %in% c("SNI_NoP"))
+
+additionalvars <- fread("/rs/rs_grp_schold/covariates/other_covariates/chronic_chond_lables_attributes_varnames.txt")
+
+variables_df <- merge(variables_df2,additionalvars[!additionalvars$Variable %in% c("HS_CRP"),-1],by.x=c("variable","description"),by.y=c("Variable","Column_Label"),all=T)
+
+cat_cov <- fread(paste0(base,"categories_cov.txt"))
+cat_cov_m <- merge(variables_df,cat_cov[,-2],by.y="Column_Name",by.x="variable",all.y=T)
 
 ah <- AnnotationHub()
 if(length(ah["AH98047"]) == 0) {
@@ -304,7 +312,7 @@ lapply(names(counts_ls),function(cluster){
 
         lapply(c(variables_df$variable),function(var){
             #c(psychvarstorun,"factor_HS_CRP",updated_vars)
-            #var="isel"
+            #var="FCDEM_11_8"
             if(!isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){
                 cat("running deseq ",var,i," \n")
         design <-  paste0("~ PC1 + PC2 + sex_alph + age + ",var)
@@ -454,36 +462,31 @@ flextable::save_as_image(
 #want to plot SES vs no SES in DESeq model
 sesrun="SES_PCs_SES_sex_age_and_treats_generem"
 run="SES_PCs_sex_age_and_treats_generem"
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/")
 outFolder=paste0(baseoutFolder,run,"/")
 sesoutFolder=paste0(baseoutFolder,sesrun,"/")
-
-variablesL
+threshold=0.10
+variablesL <- variablesL[-c(1,3)]
 
 for (i in c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX")){
 subvars <- ldply(lapply(variablesL, function(var){
     cat("running",i,var,"\n")
     if(file.exists(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))){
-    stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
-    #if(dim(subset(stats, DEGs_FDR_10>25))[1]<1){ #first subset variables that have at least one cluster with 50DEGs
-    #    cat("not enough DEGs","\n")
-    #    rm(stats)
-    #    } else{
         deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
         ses_deseqres <- fread(paste0(sesoutFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",sesrun,".txt"))
         merged_treat <- merge(deseqres,ses_deseqres,by=c("identifier","cluster","var"))
         merged_treat <- transform(merged_treat, noSES_zscore=logFC.x/SE.x, SES_zscore=logFC.y/SE.y, sig=as.factor(ifelse(padj.x<threshold & padj.y<threshold, "4both", ifelse(padj.x<=threshold, "3noSES_sig", ifelse(padj.y<=threshold, "2SES_sig", "1Not_Sig")))))
         return(merged_treat)
-    #    }
     }
 }),data.frame)
 #didnt update this one for the colored by sig
-p <- ggplot(subvars, aes(x=noSES_zscore, y=SES_zscore)) +
-  facet_wrap(.~var, scales="free")+
+p <- ggplot(subvars, aes(x=SES_zscore, y=noSES_zscore)) +
+  facet_wrap(.~var)+
   theme_bw()+
   geom_point(aes(color=sig))+ #aes(color=sig)
   geom_vline(xintercept = 0)+
   geom_hline(yintercept = 0)+
-  geom_smooth(method = "lm", fill = NA)+
+  geom_abline()+
 #  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
   stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
     theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
@@ -522,7 +525,57 @@ p <- ggplot(subvars, aes(x=noSES_zscore, y=SES_zscore)) +
 print(p)
 dev.off()
 
+#identifying SES only sig DEGs
+sesonlydegs <- ldply(lapply(c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX"), function(i){
+    subvars <- ldply(lapply(variablesL, function(var){
+        cat("running",i,var,"\n")
+        if(file.exists(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))){
+            deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
+            ses_deseqres <- fread(paste0(sesoutFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",sesrun,".txt"))
+            merged_treat <- merge(deseqres,ses_deseqres,by=c("identifier","cluster","var","treats"))
+            merged_treat <- transform(merged_treat, noSES_zscore=logFC.x/SE.x, SES_zscore=logFC.y/SE.y, sig=as.factor(ifelse(padj.x<threshold & padj.y<threshold, "4both", ifelse(padj.x<=threshold, "3noSES_sig", ifelse(padj.y<=threshold, "2SES_sig", "1Not_Sig")))))
+            return(merged_treat)
+        }
+    }),data.frame)
+    sesonly_subvars <- subset(subvars, sig=="2SES_sig")
+    return(sesonly_subvars)
+}),data.frame)
+length(unique(sesonlydegs$identifier))
+table(sesonlydegs$var,sesonlydegs$treats)
+sesonlydegs_ctrl <- subset(sesonlydegs,treats=="RNA-CTRL")
+table(sesonlydegs$var,sesonlydegs$cluster)
+head(unique(sesonlydegs_ctrl[order(sesonlydegs_ctrl$padj.y),]$identifier),n=20)
 
+#fishers test for health vs psych vars in SES test
+myDir <- paste0(sesoutFolder,"deseqres/")
+filenames <- list.files(myDir) #file list from directory
+filenames <- filenames[grep(paste0(project,".",resset,".",dimset,".deseqres_"),filenames)]
+data_names <- gsub(".SES_PCs_SES_sex_age_and_treats_generem.txt", "", filenames) #remove file ending
+data_names <- gsub("ALL.0.2.11.deseqres_", "", data_names)
+for(i in 1:length(filenames)) assign(data_names[i], fread(file.path(myDir, filenames[i]),header = TRUE, sep='\t')[,analysis:=data_names[i]]) #read in specific files and set the df object names. can dro0p unwanted columns
+ddf <- lapply(data_names, function(x) get(x)) #grab data from list of df names
+names(ddf) <- c(data_names)
+df <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) 
+
+ses_deseqresd <- merge(df,cat_cov_m,by.x="var",by.y="variable")
+ses_deseqresd <- transform(ses_deseqresd,identifier=gsub("-","_",identifier))
+ses_deseqresdm <- melt(ses_deseqresd[,c("var","identifier","cluster","treats","health_vs_psych","padj")])
+test <- reshape2::dcast(identifier ~ health_vs_psych,ses_deseqresdm, value.var="value")
+
+
+ses_deseqresd_h <- subset(ses_deseqresd,health_vs_psych=="health")
+ses_deseqresd_p <- subset(ses_deseqresd,health_vs_psych=="psych")
+ses_deseqresd_sig <- subset(ses_deseqresd, padj<0.1)
+
+t <- table(health=ses_deseqresd_sig$health_vs_psych=="health",psych=ses_deseqresd_sig$health_vs_psych=="psych", useNA = "always")[-3,-3]
+
+t <- table(health=ses_deseqresd[ses_deseqresd$padj<0.1 & ses_deseqresd$health_vs_psych=="health",],psych=ses_deseqresd[ses_deseqresd$padj<0.1 & ses_deseqresd$health_vs_psych=="psych",], useNA = "always")[-3,-3]
+df_fisher <- tryCatch(fisher.test(t), error=function(e) data.frame(estimate=NA,p.value=NA,conf.int=c(NA,NA)))
+t1 <- unique(data.frame(contrast=paste0(i,"_",c),truetrue=tryCatch(t[2,2],error=function(x)NA),oddsratio=df_fisher$estimate,pval=df_fisher$p.value,
+    CI_low=df_fisher$conf.int[1], CI_high=df_fisher$conf.int[2]))
+
+
+# running treatment DEGs
 withCOMBAT=FALSE
 run="treatment_withCOMBAT"
 run="treatment_noCOMBAT"
@@ -686,3 +739,64 @@ flextable::save_as_image(
   dft,
   path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".ndegonly.png"))
 
+#plotting LPS vs CONTROL
+run="SES_PCs_sex_age_and_treats_generem"
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/")
+outFolder=paste0(baseoutFolder,run,"/")
+threshold=0.10
+variablesL <- variablesL[-c(1,3)]
+
+
+treat="RNA-LPS"
+control="RNA-CTRL"
+subvars <- ldply(lapply(variablesL, function(var){
+    cat("running",treat,"vs",control,var,"\n")
+        ctrl_deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",control,".",run,".txt"))
+        treat_deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",treat,".",run,".txt"))
+        merged_treat <- merge(ctrl_deseqres,treat_deseqres,by=c("identifier","cluster","var"))
+        merged_treat <- transform(merged_treat, CTRL_zscore=logFC.x/SE.x, LPS_zscore=logFC.y/SE.y, sig=as.factor(ifelse(padj.x<threshold & padj.y<threshold, "4both", ifelse(padj.x<=threshold, "3CTRL_sig", ifelse(padj.y<=threshold, "2LPS_sig", "1Not_Sig")))))
+        return(merged_treat)
+}),data.frame)
+#didnt update this one for the colored by sig
+p <- ggplot(subvars, aes(x=CTRL_zscore, y=LPS_zscore)) +
+  facet_wrap(.~var)+
+  theme_bw()+
+  geom_point(aes(color=sig))+ #aes(color=sig)
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  geom_abline()+
+#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+      png(width = 12, height = 12, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".lpsvsctrl.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 1200)
+print(p)
+dev.off()
+
+
+i="RNA-CTRL"
+    run="SES_PCs_sex_age_and_treats_generem"
+    varrun=c(psychvarstorun,"age","factor_HS_CRP")
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/")
+outFolder=paste0(baseoutFolder,run,"/")
+    subvars <- ldply(lapply(varrun, function(var){
+        if(file.exists(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))){
+
+        cat("running",i,var,"\n")
+        deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
+    }
+    }),data.frame)
+subvars_sig <- subset(subvars, padj<0.1)
+length(unique(subvars_sig$identifier))
+
+filenames <- c(paste0(project,".deseqres_SES-RNA-CTRL.txt"),paste0(project,".deseqres_SES-RNA-LPS.txt"))
+data_names <- gsub(".txt", "", filenames) #remove file ending
+shortnames <- gsub(".deseqres_", "", data_names)
+shortnames <- gsub(project, "", shortnames)
+for(i in 1:length(filenames)) assign(shortnames[i], fread(file.path(outFolder, filenames[i]),header = TRUE, sep='\t')[,analysis:=shortnames[i]]) #read in specific files and set the df object names. can dro0p unwanted columns
+ddf <- lapply(shortnames, function(x) get(x)) #grab data from list of df names
+names(ddf) <- c(shortnames)
+df <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) 
