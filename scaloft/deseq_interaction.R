@@ -23,7 +23,7 @@ future::plan(strategy = 'multicore', workers = 10)
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
 args <- commandArgs(trailingOnly = TRUE)
-args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","/rs/rs_grp_scaloft/scALOFT_2024/covariates/ALOFT_covariate_issues_fixed_n521_uniq-n265_04-03-2024.txt","ALL","demux","/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt",0.2) 
+args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","/rs/rs_grp_scaloft/scALOFT_2024/covariates/ALOFT_covariate_issues_fixed_uniq-n265_psesl-a2_fixed_12-19-2024.txt","ALL","demux","/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt",0.2) 
 
 base <- args[1]
 cov_file=fread(args[2]) #this is the psych cov file
@@ -94,6 +94,7 @@ runage=FALSE
 withWave=TRUE
 puberty <-c("cgpd","cgpd5","pdpds5","cbpd","ppdpds","pspds")
 firstrunvars <- psychvarstorun[c(21:length(psychvarstorun))]
+#firstrunvars <- "psesl"
 for (cluster in names(counts_ls)){
     #cluster="C0"
         cat("running ", cluster, "\n")
@@ -279,7 +280,6 @@ df$contrast <- gsub(paste0(var,".treats"),"",df$contrast)
 fwrite(df, sep='\t', quote=F, row.names=F, col.names=T, paste0(myDir,project,".",resset,".",dimset,".sigDEGs_",var,".",run,".treatinteraction.txt"))
 }
 
-#Work in progress
 
 myDir <- paste0(outFolder,"deseqres/")
 filenames <- list.files(myDir) #file list from directory
@@ -313,7 +313,8 @@ wstats50 <- reshape(stats50[,-c(7,9,11)], idvar = c("symb","description","contra
 degcols <- grep("sigDEGs",colnames(wstats50))
 subsubvars <- wstats50[,!grepl(paste(c(sapply(strsplit(colnames(wstats50[,degcols[ apply(wstats50[,degcols],MARGIN=2,FUN=my.max)<50]]),"[.]"),function(y) y[1]),"NA"),collapse="[.]|"),colnames(wstats50))]
 dft <- subsubvars[,-4] %>% flextable() %>% span_header(sep=":")
-cols <- seq(3,36,by=3)
+bodycol=ncol(subsubvars)-3
+cols <- seq(3,bodycol,by=3)
 border <- fp_border()
 big_border <- fp_border(color = "black", width = 2)
 dft <- align(dft, i = 1:2, j = c(4:length(subsubvars[,-4])), align = "center", part = "header")
