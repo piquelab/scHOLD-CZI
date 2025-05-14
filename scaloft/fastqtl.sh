@@ -5,7 +5,7 @@ for j in $(seq 1 30); do
     fastQTL --vcf /wsu/home/groups/piquelab/IBD_eQTL/FastQTL/Rectum_bi-allelic_SNPs/IBD_eQTL_rectum_DNA_genotypes_filtered_SNPs.vcf.gz \
     --bed /rs/rs_grp_ibdeqtl/FastQTL/rectum_protein_coding_residuals/qnorm_residuals_analysis/IBD-eQTL_Rectum_covariate_corrected_voom-q-norm.bed.gz \
     --permute 1000 10000 --window 1e5 --out output/PC1-$i.permutations.chunk$j.txt.gz \
-    --cov ../GEPCA/covariates/IBD_eQTL_Rectum-PC1-$i.full.covariates-FastQTL.txt --chunk $j 30"
+    --cov /wsu/home/groups/piquelab/IBD_eQTL/FastQTL/Rectum_fastqtl/GEPCA/covariates/IBD_eQTL_Rectum-PC1-$i.full.covariates-FastQTL.txt --chunk $j 30"
 sleep 1
 done;
 done
@@ -179,11 +179,11 @@ mkdir fastQTL/results/figures
 
 #had 1-30 PCs but unnecessary to do that many
 treat="CTRL"
-for cluster in `awk 'NR>2{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
   for i in $(seq 1 20); do head -n $(($i+1)) /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/PCcovariates-FastQTL.$cluster.$treat.txt > /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/covariates/$cluster.$treat.PC1-$i.covariates-FastQTL.txt; done
 done
 #cluster="C0"
-for cluster in `awk 'NR>10{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
 #for cluster in `awk 'NR>1&&NR<7{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
 #for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
 echo running $cluster
@@ -199,7 +199,7 @@ echo already run $cluster.$treat.PC$i.chunk$j
 else 
 sbatch -q primary -N1-1 -n 2 --mem=12G -t 10000 --job-name=$cluster.$treat.PC$i.chunk$j \
     --wrap "module load misc2; \
-    fastQTL --vcf /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.filtered.vcf.gz \
+    fastQTL --vcf /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/vcf/ref.ac1.$cluster.$treat.filtered.vcf.gz \
     --bed /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/phenotypes_fastqtl.$cluster.$treat.residuals_qnorm.sort.bed.gz \
     --permute 1000 10000 --window 1e6 \
     --out /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/permutations/$cluster.$treat.PC1-$i.permutations.chunk$j.txt.gz \
@@ -234,7 +234,7 @@ for j in $(seq 1 30); do
     --wrap "module load misc2; \
    fastQTL \
       --permute 1000 10000 --window 1e6 \
-      --vcf /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.filtered.vcf.gz \
+      --vcf /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/vcf/ref.ac1.$cluster.$treat.filtered.vcf.gz \
       --bed /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/phenotypes_fastqtl.$cluster.$treat.residuals_qnorm.sort.bed.gz \
       --out /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/permutations/$cluster.$treat.PC0.permutations.chunk$j.txt.gz \
       --chunk ${j} 30"
