@@ -19,13 +19,16 @@ basefolder=gsub("analysis/","counts_cellranger_hg38/",base)
 figuredir=paste0(outFolder,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 
-dimset <- as.numeric(args[2])
+dim <- as.numeric(args[2])
 
 future::plan(strategy = 'multicore', workers = 4)
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
 ########################
 
+#test both dim picked from elbowplot and default
+for (dimset in c(dim,50)){ 
+	cat("running",dimset,"\n")
 opfn_i <- file.info(dir(outFolder, full.names=T, pattern=paste0(project,".seuratObj-afterharmony.")))
 opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
 sc <- read_rds(opfn)
@@ -35,4 +38,4 @@ sc <- sc %>% FindNeighbors(reduction = "harmony", dims = 1:dimset)
 
 opfn <- paste0(outFolder,project,".seuratObj-post-umap.",dimset,".rds")
 write_rds(sc, opfn)
-
+}
