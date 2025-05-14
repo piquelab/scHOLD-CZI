@@ -9,7 +9,7 @@ library(DESeq2)
 
 
 args <- commandArgs(trailingOnly = TRUE)
-args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_converted_dbgapID_key_n183_AR.txt","ALL","fastdemux") #for testing
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_chronic_cond_added_02_07_2024.txt","ALL","fastdemux") #for testing
 base <- args[1]
 cov_file=fread(args[2]) #t5 is the psych cov file
 project=args[3]
