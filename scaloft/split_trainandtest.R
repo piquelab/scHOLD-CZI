@@ -1,0 +1,410 @@
+#need to split gene expression data into training and testing data sets
+#1. Import your gene expression matrix (rows as genes_cluster, columns as samples) and corresponding clinical data
+#2. split data
+
+require(caTools)
+set.seed(101) 
+sample = sample.split(data[,1], SplitRatio = .7)
+train = subset(data, sample == TRUE)
+test  = subset(data, sample == FALSE)
+
+
+library(tidyr)
+library(tidyverse) #gave me issues 031725 -- hax node
+library(glmnet)
+library(data.table)
+library(methods)
+library(plyr)
+library(ggplot2)
+library(ggpubr)
+
+future::plan(strategy = 'multicore', workers = 10) #had an issue: One of the ‘future.apply’ iterations (‘future_lapply-1’) unexpectedly generated random numbers
+options(future.globals.maxSize = 30 * 1024 ^ 3)
+
+myvar="pedu"
+treat="CTRL"
+
+variables <- c("pedu", "pincme", 
+                "psesl", 
+                "pnsi", "cddstf",
+                "cdres", "cpwm",  "cpeqcm", "criskf", "cditsm", 
+                "IL5_co", "IL13_co", "IFNG_co", "IL5_hc", "IL13_hc", "IFNG_hc",
+                "baso_av", "eosi_av", "lymp_av", "mono_av", "neut_av",
+                "aBPFAM", "aBPFPM", "FEVPP", "FVCPP", "FFPP",
+                "cdatot", "csasg", "ctasfq", "ctasev", 
+                "csnuma",  "cssdh", "csslpq", 
+                "genPC1", "genPC2", "genPC3",  "Sex", "cage1", "ceth1", "cwght1", "chght1", "csex1",
+                "cgpd5", "cgpd", "cbpd"
+                )
+ 
+variable_names <- c("Parental Education", "Parental Income",
+                "Subjective SES", 
+                "Neighborhood Stress", "Self-disclosure", 
+                "Perceived responsiveness", "Parental Warmth", "YR Parent Child Conflict",  "Risky Family", "Youth Depression", 
+                "Stimulated IL-5", "Stimulated IL-13", "Stimulated IFNy", "Stimulated IL-5 cortisol trt", "Stimulated IL-13 cortisol trt", "Stimulated IFNy cortisol trt",    
+                "Basophils", "Esosinophils", "Lymphocytes", "Monocytes", "Neutrophils",
+                "Peak flow AM", "Peak flow PM", "FEV1 Percent Predicted", "FVC Precent Predicted", "FEV1/FVC Precent Predicted", 
+                "DD Asthma symptoms", "Nightly Asthma", "Asthma Frequency", "Asthma Severity", 
+                "Nightly Awakenings",  "Sleep Duration", "Sleep quality",
+                "New Genotype PC1", "New Genotype PC2", "New Genotype PC3","Sex_alph", "Age", "Ethnicity", "Weight", "Height", "sex",
+                "Female Menarche Status", "Female Puberty Score", "Male puberty score"
+                )
+variables_df <- data.frame(variable=variables, description=variable_names)
+
+base="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/"
+method="demux"
+project="ALL"
+resset=0.2
+dimset=50
+combatrun="income_PCs_sex_age_and_treats_adjusted"
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/")
+outFolder=paste0(baseoutFolder,"glmnet/lessfilt/")
+if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
+figuredir=paste0(outFolder,"figures/")
+if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
+opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.RData")
+load(opfn)
+
+u_eigenvec2 <- unique(fread("/rs/rs_grp_scaloft/scALOFT_2024/covariates/eigenvec2_u.txt"))
+#to match names need to change dash to .
+u_eigenvec2 <- transform(u_eigenvec2, Sample_ID=gsub("-",".",Sample_ID))
+
+#was cinfirming NA was due to gene-cluster combo
+new_DF <- data[rowSums(is.na(data)) > 0,]
+new_DF[new_DF$V1=="ENSG00000115977",] %>% summarise_all(~all(is.na(.)))
+data_na <- ldply(lapply(names(counts_ls), function(cluster) {
+  Res1 <- fread(paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/",cluster,".",treat,".residuals_qnorm.txt"))
+  Res1$ensg_cluster <- paste0(Res1$V1,"_",cluster)
+  new_DF <- Res1[rowSums(is.na(Res1)) > 0,]  
+  return(new_DF)
+  }),data.frame)
+
+
+#for (treat in c("CTRL","LPS","LPS-DEX","PHA","PHA-DEX")){ #only have ctrl so far
+  treat="CTRL"
+	cat("running",treat,"\n")
+data <- ldply(lapply(names(counts_ls), function(cluster) {
+	Res1 <- fread(paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/",cluster,".",treat,".residuals_qnorm.txt"))
+	Res1$ensg_cluster <- paste0(Res1$V1,"_",cluster)
+	Res1 <- Res1 %>% dplyr::select(V1, ensg_cluster, everything())
+	return(Res1)
+	}),data.frame)
+
+u_eigenvec2_resind <- subset(u_eigenvec2, Sample_ID %in% colnames(data))
+cv_original <- u_eigenvec2_resind[ order(match(u_eigenvec2_resind$Sample_ID, colnames(data[,-c(1:2)]))), ]
+
+identical(colnames(data[,-c(1:2)]), cv_original$Sample_ID)
+
+# keep the full covariate and GE data before subsetting:
+cvfull <- cv_original
+datafull <- data[,-c(1:2)]
+
+allvars <- ldply(lapply(variables_df$variable, function(myvar){
+  # subset data to only samples that have y:
+  cv <- na.omit(cv_original,cols=myvar)
+  # subset data make sure they're in the same order:
+  data_cv <- data[,colnames(data) %in% c("V1","ensg_cluster",cv$Sample_ID)]
+  identical(colnames(data_cv[,-c(1:2)]),cv$Sample_ID)
+  #data_cv[is.na(data_cv)] <- 0
+  data_sub <- data_cv[complete.cases(data_cv),] #removes na rows
+
+  df <- data.frame(starting_genecluster=length(data_cv$ensg_cluster),complete_genecluster=length(data_sub$ensg_cluster),starting_uniquegene=length(unique(data_cv$V1)),complete_uniquegene=length(unique(data_sub$V1)))
+  fwrite(df, file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".", myvar, "testedgenenum.txt"), col.names=TRUE, quote=FALSE, sep="\t")
+
+  # train glmnet model:
+  cat(myvar,"training \n")
+  y <- as.numeric(unlist(cv[,..myvar]))
+  N <- length(y)
+  x <- t(data_sub[,-c(1:2)])
+  colnames(x) <- data_sub$ensg_cluster
+  set.seed(12)
+  mymodel <- cv.glmnet(x,y,family="gaussian", alpha=0.1, type.measure="mse", nfold=length(y),trace.it = TRUE)
+
+  #Get lambda from model
+  ind = which(mymodel$lambda==mymodel$lambda.min)
+  coefs <- mymodel$glmnet.fit$beta[,ind]
+  nzero <- coefs[which(coefs!=0)]
+  lambda <- mymodel$lambda[ind]
+
+  ensts <- names(nzero)
+  genes <- as.character(names(nzero))
+
+  intercept <- coef(mymodel)[1]
+  enstsweights <- coefs[ensts]
+
+  cvm <- mymodel$cvm[ind]
+  cvm_null <- mymodel$cvm[1]
+  improve <- 1-cvm/cvm_null
+
+  # save the glmnet model: (enstsweights etc was not originally saved but is used for plotting)
+  cat("saving \n")
+  save(mymodel,enstsweights,genes,file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".", myvar, ".RData"))
+
+  # make predictions on all, including dropouts and check correlation:
+  rownames(datafull) <- data$ensg_cluster
+  vardata <- datafull[ensts,]
+  varpredictions <- enstsweights %*% as.matrix(vardata) + intercept
+  varpredictions <- t(data.frame(varpredictions))
+  #rownames(varpredictions) <- gsub("[.]", "-", rownames(varpredictions))
+  identical(rownames(varpredictions), cvfull$Sample_ID)
+  corr <- cor.test(varpredictions[,1], as.numeric(unlist(cvfull[,..myvar])))
+
+  # save the names of genes that went into the model:
+  if (length(genes)>0){
+  	gene_df=data.frame(ensg_cluster=genes)
+  fwrite(gene_df, sep="\t",file=paste0(outFolder,project,".",resset,".",dimset,".",treat, ".", myvar, "-pred-genes.txt"), quote=FALSE, row.names=FALSE, col.names=FALSE)
+  }
+  # and the predictions:
+  rownames(varpredictions) <- gsub("[.]", "-", rownames(varpredictions))
+  fwrite(varpredictions, file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".", myvar, "pred.txt"), row.names=TRUE, col.names=FALSE, quote=FALSE, sep="\t")
+
+  # plot the correlation between actual and predicted:
+  cat("plotting \n")
+
+  dfplot <- cbind(x=as.numeric(unlist(cvfull[,..myvar])), y=varpredictions[,1])
+  p <- ggplot(dfplot, aes(x=x, y=y)) +
+    theme_bw()+
+    xlab(paste0(variables_df[variables_df$variable==myvar,"description"]))+
+    ylab(paste0("GLMnet-predicted ", paste0(variables_df[variables_df$variable==myvar,"description"])))+
+    ggtitle(paste0("Correlation: ", myvar, " vs. GLMnet-predicted ", myvar, " on ", length(enstsweights), " gene_clusters"))+
+    geom_point()+ #aes(color=sig)
+    #geom_vline(xintercept = 0)+
+    #geom_hline(yintercept = 0)+
+    geom_smooth(method = "lm", se = FALSE)+
+  #  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+    stat_cor(color="blue",method="pearson",cor.coef.name = "R", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+      theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+      axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+      axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+      legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+  png(width = 10, height = 10, file=paste0(figuredir,project,".",resset,".",dimset,".",treat,".", myvar,"_expanded_baseline_res_corr.png"), pointsize=12, 
+        bg = "transparent", canvas = "white", units = "in", res = 1200)
+  print(p)
+  dev.off()
+
+  # simple plot:
+  png(width = 10, height = 10, file=paste0(figuredir,project,".",resset,".",dimset,".",treat, ".GLMnet-model-",myvar,".png"), pointsize=12, 
+        bg = "transparent", canvas = "white", units = "in", res = 1200)
+  plot(mymodel, main=paste0(length(genes), " genes best predict ", myvar))
+  dev.off()
+
+  # add official variable name and save correlation:
+  tab <- data.frame(variables_df[variables_df$variable==myvar,],cor=corr$estimate,pvalue=corr$p.value,improve, N)
+  return(tab)
+}),data.frame)
+
+fwrite(allvars, file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+}
+
+#going back in and plotting splitting scaip1 and 2 as colors and equations
+#run script through making cvfull then load:
+lapply(variables_df$variable, function(myvar){
+varpredictions <- fread(file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".", myvar, "pred.txt"))
+load(file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".", myvar, ".RData"))
+
+dfplot <- cbind(as.numeric(unlist(cvfull[,..myvar])), varpredictions[,2],wave=as.factor(ifelse(cvfull$SCAIP7_18==0,"SCAIP1","SCAIP2")))
+colnames(dfplot) <- c("x","y","wave")
+p <- ggplot(dfplot, aes(x=x, y=y,color=wave, group=wave)) +
+  theme_bw()+
+  xlab(paste0(variables_df[variables_df$variable==myvar,"description"]))+
+  ylab(paste0("GLMnet-predicted ", paste0(variables_df[variables_df$variable==myvar,"description"])))+
+  ggtitle(paste0("Correlation: ", myvar, " vs. GLMnet-predicted ", myvar, " on ", length(enstsweights), " gene_clusters"))+
+  geom_point()+ #aes(color=sig)
+  #geom_vline(xintercept = 0)+
+  #geom_hline(yintercept = 0)+
+  geom_smooth(method = "lm", se = FALSE)+
+#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+  stat_cor(aes(color=wave),method="pearson",cor.coef.name = "R", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+png(width = 10, height = 10, file=paste0(figuredir,project,".",resset,".",dimset,".",treat,".", myvar,"_expanded_baseline_res_corr_scaip1v2color.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 1200)
+print(p)
+dev.off()
+})
+
+#larger table containing gene nums, plus corr from glmnet, data from Justyna? , #degs
+run="income_PCs_sex_age_and_treats_adjusted_withWave"
+degoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/",run,"/")
+genenum <- ldply(lapply(c(variables_df$variable,"age"), function(myvar){
+  if(file.exists(paste0(outFolder,project,".",resset,".",dimset,".",treat, ".", myvar, "-pred-genes.txt"))){
+  df <- fread(file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".", myvar, "testedgenenum.txt"))
+  #fixed script for future runs ignore next 2 lines
+  #df <- df[,-1]
+  colnames(df) <- c("starting_genecluster","complete_genecluster","starting_uniquegene","complete_uniquegene")
+  modelgenes <- fread(file=paste0(outFolder,project,".",resset,".",dimset,".",treat, ".", myvar, "-pred-genes.txt"), header=F)
+  df_n <- cbind(variable=myvar,df, modelgenenum=dim(modelgenes)[1])
+  return(df_n)
+  }
+}),data.frame)
+degnum <- ldply(lapply(c(variables_df$variable,"age"), function(var){
+    cat("running",treat,var,"\n")
+    if(file.exists(paste0(degoutFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",treat,".",run,".txt"))){
+    stats <- fread(paste0(degoutFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",treat,".",run,".txt"))
+    stats_s <- data.frame(variable=var,totalDEGs=sum(stats$DEGs_FDR_10,na.rm=T))
+    return(stats_s)
+    }
+}),data.frame)
+allvarscorr <- fread(file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"))
+names(allvarscorr)[5] <- "var_explained"
+justyna <- fread(paste0(base,"justyna_glmnet_1ctable.txt"))
+colnames(justyna) <- gsub("full","justyna",colnames(justyna))
+names(justyna)[c(5)] <- c("N.training.justyna")
+justyna$varexp.training.justyna <- justyna$varexp.training/100
+justyna_lab <- fread(paste0(base,"justyna_variable_symb.txt"))
+justyna_symb <- merge(justyna[,-4],justyna_lab[,-c(1)],by.y="Short_form_label",by.x="variable")
+
+df <- merge(genenum,allvarscorr,by="variable")
+df2 <- merge(df,degnum,by="variable")
+df3 <- merge(df2,justyna_symb[,c("symb","corr.justyna","pvalue.justyna","varexp.training.justyna","N.training.justyna")],by.x="variable",by.y="symb",all=T)
+
+df4 <- df3 %>% dplyr::select(c(variable,description,complete_genecluster,N,modelgenenum,cor,pvalue,var_explained,totalDEGs,corr.justyna,pvalue.justyna,varexp.training.justyna,N.training.justyna))
+fwrite(df4, file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".statstable_glmnet.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
+library(ggrepel)
+df4sig <- subset(df4,var_explained>=0.01)
+  p <- ggplot(df4sig, aes(x=varexp.training.justyna, y=var_explained,color=variable)) +
+    theme_bw()+
+    geom_point(size=5)+ #aes(color=sig)
+    geom_abline()+
+    geom_hline(yintercept=0.01,linetype="dashed", color = "red")+
+    geom_vline(xintercept=0.01,linetype="dashed", color = "red")+
+    geom_label_repel(aes(label = description),
+                  box.padding   = 0.35, 
+                  point.padding = 0.5,
+                  segment.color = 'grey50')+
+    #geom_smooth(method = "lm", se = FALSE)+
+    stat_cor(color="blue",method="pearson",cor.coef.name = "R", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+      theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+      axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+      axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+      legend.position="none",strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+  png(width = 10, height = 10, file=paste0(figuredir,project,".",resset,".",dimset,".",treat,".","_var_explained_vsJustyna.png"), pointsize=12, 
+        bg = "transparent", canvas = "white", units = "in", res = 1200)
+  print(p)
+  dev.off()
+
+#calculating cell proportion for each model
+
+file=paste0(outFolder,project,".",resset,".",dimset,".",treat, ".", myvar, "-pred-genes.txt")
+
+genedf <- ldply(lapply(c(variables_df$variable,"age"), function(myvar){
+  if(file.exists(paste0(outFolder,project,".",resset,".",dimset,".",treat, ".", myvar, "-pred-genes.txt"))){
+  modelgenes <- fread(file=paste0(outFolder,project,".",resset,".",dimset,".",treat, ".", myvar, "-pred-genes.txt"), header=F)
+  
+  modelgenes <- transform(modelgenes, ensg=sapply(strsplit(modelgenes$V1, "_"),function(y) y[1]),cluster=sapply(strsplit(modelgenes$V1, "_"),function(y) y[2]))
+  proplist <- ldply(lapply(names(counts_ls),function(c){
+    modelc <- subset(modelgenes, cluster==c)
+    modelnotc <- subset(modelgenes, !cluster==c)
+    prop=length(modelc$V1)/length(modelgenes$V1)
+    df <- data.frame(variable=myvar, cluster=c, geneincluster=length(modelc$V1),modelgenenum=length(modelgenes$V1),cellprop=prop)
+    return(df)
+    }),data.frame)
+  #return(proplist)
+  }
+}),data.frame)
+
+#subset for variables in 1%explained
+allvarscorr <- fread(file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"))
+names(allvarscorr)[5] <- "var_explained"
+allvarscorr_1 <- subset(allvarscorr, var_explained>=0.01)
+
+genedf_1 <- subset(genedf, variable %in% allvarscorr_1$variable)
+cytokinevars <- c("IL5_co","IL13_co","IFNG_co","IL5_hc","IL13_hc","IFNG_hc")
+genedf_2 <- subset(genedf_1, !variable %in% c("csex1","cage1","Sex","genPC1","genPC2","genPC3","cwght1","chght1","cgpd5","cgpd","cbpd",cytokinevars))
+
+genedfcols <- merge(genedf_2,variables_df,by="variable")
+
+top10m <- reshape2::dcast(cluster ~ description, data=genedfcols, value.var="cellprop",fun.aggregate=mean,na.rm=T)
+rownames(top10m) <- top10m$cluster
+top10ms <- top10m[apply(top10m[,-1], 1, function(x) !all(x==0)),]
+top10msa <- top10ms[, colSums(top10ms != 0, na.rm = TRUE) > 0]
+myMat <- top10msa[,-1]
+
+library(ggcorrplot)
+png(width = 10, height = 10, file=paste0(figuredir,"cellprop_heatmap.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 1200)
+par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
+ggcorrplot(myMat, method = "square", outline.col = "grey", ggtheme = ggplot2::theme_bw(), lab = TRUE, lab_size=2, digits = 1) +
+scale_fill_gradient2(low = "white", high = "red", breaks=c(0, 0.5), limit=c(0, 0.5)) + labs(fill = "Cell prop")
+    #theme(axis.text.x = element_text(angle = 45, hjust = 1, colour = a))
+dev.off()
+
+############
+############## COMPARE OLD TO NEW
+threshold <- 0.01
+outFolder=paste0(baseoutFolder,"glmnet/")
+lessfiltoutFolder=paste0(baseoutFolder,"glmnet/lessfilt/")
+
+allvarscorr <- fread(file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"))
+names(allvarscorr)[5] <- "var_explained"
+lessfiltallvarscorr <- fread(file=paste0(lessfiltoutFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"))
+names(lessfiltallvarscorr)[5] <- "var_explained"
+
+merged_treat <- merge(allvarscorr,lessfiltallvarscorr,by=c("variable","description"))
+merged_treat_all <- merged_treat %>% mutate(sig = case_when(
+var_explained.x>=threshold & var_explained.y>=threshold ~ "4BOTH_sig",
+var_explained.x >= threshold ~ "3allfilt_sig",
+var_explained.y >= threshold ~ "2no6countfilt_sig",    
+))
+merged_treat_all$sig[is.na(merged_treat_all$sig)] <- "1Not_Sig"
+
+forplotting <- subset(merged_treat_all, variable %in% variables_df[c(1:10),"variable"])
+cols <- c("4BOTH_sig" = "green","1Not_Sig" = "grey","3allfilt_sig" = "red", "2no6countfilt_sig" = "blue")
+p <- ggplot(forplotting, aes(x=var_explained.x, y=var_explained.y)) +
+  #facet_wrap(.~variable)+
+  theme_bw()+
+  xlab("allfilt (old)")+
+  ylab("no6countfilt (new)")+
+  geom_point(size=5,aes(color=sig))+ #aes(color=sig)     
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  geom_abline()+
+  geom_label_repel(aes(label = description),
+                  box.padding   = 0.35, 
+                  point.padding = 0.5,
+                  segment.color = 'grey50')+
+  scale_colour_manual(values = cols)+
+#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+      png(width = 12, height = 12, file=paste0(lessfiltoutFolder,"figures/comparefilts.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 1200)
+print(p)
+dev.off()
+
+##############################################################
+###########################################################
+# make boxplots of correlations:
+corrs <- allvarscorr_1
+
+corrs <- corrs[!is.na(corrs$cor),]
+corrs$r <- sqrt(corrs$var_explained)
+
+
+png(width = 10, height = 10, file=paste0(figuredir,"boxplot_fig1c.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 1200)
+par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
+p<-ggplot(data=corrs, aes(x=variable, y=r, fill=variable)) + xlab("") + ylab("Cross-validated correlation") + geom_boxplot()+ theme_bw()
+p+theme(axis.text.x = element_text(angle = 45, hjust = 1, size=3), axis.text.y=element_text(size=3)) +
+     theme(plot.margin = unit(c(1,0,0,3), "cm"), legend.text=element_text(size=3),legend.title=element_text(size=3), axis.title.y = element_text(size=3))
+dev.off()
+
+#how many variables only covered in 1 study
+df3 <- merge(df2,justyna_symb[,c("symb","corr.justyna","pvalue.justyna","varexp.training.justyna","N.training.justyna")],by.x="variable",by.y="symb",all=T)
+
+
+
+
+
+##########################################
+#alt justyna
+alt_justyna <- fread("/nfs/rprdata/ALOFT/AL/GLMnet/alpha0.1-LOO_119_rmXY/GLMnet-correlations.txt")
+both_justyna <- merge(justyna_symb,alt_justyna,by.x="symb",by.y="variable")
+fwrite(both_justyna, file=paste0(outFolder,".both_justyna_glmnet.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
