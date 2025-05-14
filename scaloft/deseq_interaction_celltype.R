@@ -23,7 +23,7 @@ future::plan(strategy = 'multicore', workers = 10)
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
 args <- commandArgs(trailingOnly = TRUE)
-args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","/rs/rs_grp_scaloft/scALOFT_2024/covariates/ALOFT_covariate_issues_fixed_n521_uniq-n265_04-03-2024.txt","ALL","demux","/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt",0.2) 
+args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","/rs/rs_grp_scaloft/scALOFT_2024/covariates/ALOFT_covariate_issues_fixed_uniq-n265_psesl-a2_fixed_12-19-2024.txt","ALL","demux","/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt",0.2) 
 
 base <- args[1]
 cov_file=fread(args[2]) #this is the psych cov file
@@ -166,7 +166,7 @@ save(counts_ls,metadata_ls, file=opfn)
 
 
 baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/")
-opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt_33.RData")
+opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.RData")
 load(opfn)
 
 all_cluster_metadata <- ldply(lapply(metadata_ls,function(i){
@@ -175,8 +175,8 @@ all_cluster_metadata <- ldply(lapply(metadata_ls,function(i){
     }), data.frame)[,-1]
 rownames(all_cluster_metadata) <- all_cluster_metadata$rows
 
-combatrun="income_PCs_sex_age_and_treats_adjusted_33"
-run="treatxcelltype_income_PCs_sex_age_and_treats_adjusted_withWave_33"
+combatrun="income_PCs_sex_age_and_treats_adjusted"
+run="varxcelltype_income_PCs_sex_age_and_treats_adjusted_withWave"
 combatfolder=paste0(baseoutFolder,combatrun,"/")
 outFolder=paste0(baseoutFolder,run,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
@@ -187,7 +187,7 @@ if (!file.exists(paste0(outFolder,"sampleidwave/"))) dir.create(paste0(outFolder
 if (!file.exists(paste0(outFolder,"sampleid_all/"))) dir.create(paste0(outFolder,"sampleid_all/"), showWarnings=F)
 if (!file.exists(paste0(outFolder,"figures/"))) dir.create(paste0(outFolder,"figures/"), showWarnings=F)
 
-combatrun="cluster_income_PCs_sex_age_and_treats_adjusted_allclus_33"
+combatrun="cluster_income_PCs_sex_age_and_treats_adjusted_allclus"
 
 all_counts_raw_ls <- lapply(unique(all_cluster_metadata$letter_clusters),function(cluster){
     #cluster=unique(all_cluster_metadata$letter_clusters)[1]
@@ -241,7 +241,7 @@ runage=TRUE
 withWave=TRUE
 withCOMBAT=TRUE
 puberty <-c("cgpd","cgpd5","pdpds5","cbpd","ppdpds","pspds")
-firstrunvars <- psychvarstorun[c(1:2)]
+firstrunvars <- psychvarstorun[c(6:10)]
 
 cluster_metadata <- transform(all_cluster_metadata, treats=as.factor(treats))
 cluster_metadata <- within(cluster_metadata, treats <- relevel(treats, ref = "CTRL"))
@@ -249,7 +249,7 @@ cluster_metadata <- transform(cluster_metadata, Sex=as.factor(Sex))
 if(all(c("0","1") %in% levels(cluster_metadata$Sex))){
     cluster_metadata <- within(cluster_metadata, Sex <- relevel(Sex, ref = "0"))
 }
-
+fdr=0.05
 #for(i in unique(cluster_metadata$treats)){
     for(i in c("CTRL")){
     #i <- "CTRL"
@@ -260,13 +260,13 @@ if(all(c("0","1") %in% levels(cluster_metadata$Sex))){
     lapply(firstrunvars[c(1:length(firstrunvars))][!firstrunvars[c(1:length(firstrunvars))] %in% puberty],function(var){
         #var="pnsi"
         contrastdf <- data.frame(control_cluster="C0",contrast_cluster=unique(cluster_metadata$letter_clusters)[!unique(cluster_metadata$letter_clusters)=="C0"])
-        contrastdf <- transform(contrastdf, contrast1=paste0(var,".","letter_clusters",control_cluster),contrast2=paste0(var,".","letter_clusters",contrast_cluster))
+        contrastdf <- transform(contrastdf, contrast1=paste0("letter_clusters",control_cluster,".",var),contrast2=paste0("letter_clusters",contrast_cluster,".",var))
         cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","Wave","genPC1","genPC2","genPC3","Sex","cage1","letter_clusters",var)]
             mclapply(1:nrow(contrastdf),function(x) {
                 #x=1
                 con=contrastdf[x,]
-                contrast=paste0(con$contrast2,"_vs_",con$contrast1)
-            if(!isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",contrast,".",run,".txt")) > 0)){
+                contrast=gsub("letter_clusters","",paste0(con$contrast2,"_vs_",con$contrast1))
+            if(!isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",i,".",contrast,".",run,".txt")) > 0)){
             cat("running deseq",var,i,contrast," \n")
             cluster_metadata_var <- subset(cluster_metadata_var, letter_clusters %in% c(con$control_cluster,con$contrast_cluster)) #removing due to low ind counts
 
@@ -285,20 +285,30 @@ if(all(c("0","1") %in% levels(cluster_metadata$Sex))){
         }
 
         cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
-        fwrite(cluster_metadata_var[,c("Sample_ID","Wave")], sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".sampleidwave_",var,"-",i,".",contrast,".",run,".txt"))
         if(withCOMBAT){
-        cluster_counts_t <- adjusted[,which(colnames(adjusted) %in% rownames(cluster_metadata_var))]
+        cluster_counts_pre <- adjusted[,which(colnames(adjusted) %in% rownames(cluster_metadata_var))]
         } else{
-        cluster_counts_t <- all_counts_raw[,which(colnames(all_counts_raw) %in% rownames(cluster_metadata_var))]
+        cluster_counts_pre <- all_counts_raw[,which(colnames(all_counts_raw) %in% rownames(cluster_metadata_var))]
         }
+
+        #trying to subset for 25% expression using just the data directly being used in deseq
+        cat(dim(cluster_counts_pre),"\t")
+        #count the number of 0s per row
+        numZero <- rowSums(cluster_counts_pre == 0, na.rm = T)
+        keep <- rowSums(cluster_counts_pre,na.rm=T) >= (ncol(cluster_counts_pre) / 4) #filter to keep genes expressed in 25% of samples
+        cluster_counts_t <- unlist(cluster_counts_pre[keep, ])
+        cat(dim(cluster_counts_t),"\t")
+        #which(colSums(cluster_counts_t==0) == nrow(cluster_counts_t)) #none with all 0s
         cluster_metadata_var <- cluster_metadata_var[which(rownames(cluster_metadata_var) %in% colnames(cluster_counts_t)),]
         all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
+        fwrite(cluster_metadata_var[,c("Sample_ID","Wave")], sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".sampleidwave_",i,".",contrast,".",run,".txt"))
 
         dds <- DESeqDataSetFromMatrix(cluster_counts_t, 
                   colData = cluster_metadata_var, 
                   design = as.formula(design))
+        dds <- estimateSizeFactors(dds, type = 'poscounts')
         dds <- DESeq(dds,parallel=TRUE)
-        opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",var,"-",i,".",contrast,".",run,".RDS")
+        opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",i,".",contrast,".",run,".RDS")
         saveRDS(dds, file=opfn)
 
         res <- results(dds, name =con$contrast2)
@@ -309,10 +319,10 @@ if(all(c("0","1") %in% levels(cluster_metadata$Sex))){
         sub.table$var=var
         sub.table$treats =i
         sub.table$contrast=contrast
-        fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",contrast,".",run,".txt"))
+        fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",i,".",contrast,".",run,".txt"))
         sigDEGs <- subset(sub.table,padj<fdr)
         sigDEGs <- sigDEGs[order(sigDEGs$padj), ]
-        fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".sigDEGs_",var,"-",i,".",contrast,".",run,".txt"))
+        fwrite(sigDEGs, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".sigDEGs_",i,".",contrast,".",run,".txt"))
         table <- data.frame(symb=var, description=variables_df[variables_df$variable==var,]$description, treats=i,contrast=contrast)
         table$number_samples <- paste(nrow(cluster_metadata_var))
         table$number_individuals <- paste(length(unique(cluster_metadata_var$Sample_ID)))
@@ -320,7 +330,7 @@ if(all(c("0","1") %in% levels(cluster_metadata$Sex))){
         table$tested_genes <- paste(nrow(sub.table))
         table$DEGs_FDR <- paste(nrow(sigDEGs))
         table$DEGs_FDR_10 <- paste(nrow(subset(sub.table,padj<0.1)))
-        fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",contrast,".",run,".txt"))
+        fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",i,".",contrast,".",run,".txt"))
         }
         })
     })
@@ -329,107 +339,78 @@ if(all(c("0","1") %in% levels(cluster_metadata$Sex))){
 
 
 for (var in c(psychvarstorun,"cage1")[c(1:length(psychvarstorun))][!psychvarstorun[c(1:length(psychvarstorun))] %in% puberty]){
+for (var in firstrunvars){
 cat("running",var,"\n")
 myDir <- paste0(outFolder,"stats/")
 filenames <- list.files(myDir) #file list from directory
-filenames <- filenames[grep(paste0(var,".treats"),filenames)]
-data_names <- gsub(".income_PCs_sex_age_and_treats_adjusted_withWave.txt", "", filenames) #remove file ending
+#filenames <- filenames[grep(paste0(var,".treats"),filenames)]
+data_names <- gsub(".varxcelltype_income_PCs_sex_age_and_treats_adjusted_withWave.txt", "", filenames) #remove file ending
 data_names <- gsub("ALL.0.2.50.", "", data_names)
 data_names <- gsub("stats_all_cell_types-", "", data_names)
 for(i in 1:length(filenames)) assign(data_names[i], fread(file.path(myDir, filenames[i]),header = TRUE, sep='\t')) #read in specific files and set the df object names. can dro0p unwanted columns
 ddf <- lapply(data_names, function(x) get(x)) #grab data from list of df names
 names(ddf) <- c(data_names)
 stats <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) #recursively merge df from list of df. still not sure what accumulate does
-stats$contrast <- gsub(paste0(var,".treats"),"",stats$contrast)
 fwrite(stats, sep='\t', quote=F, row.names=F, col.names=T, paste0(myDir,project,".",resset,".",dimset,".stats_all_cell_types-",var,".",run,".treatinteraction.txt"))
 
 myDir <- paste0(outFolder,"deseqres/")
 filenames <- list.files(myDir) #file list from directory
-filenames <- filenames[grep(paste0(var,".treats"),filenames)]
-data_names <- gsub(".income_PCs_sex_age_and_treats_adjusted_withWave.txt", "", filenames) #remove file ending
+#filenames <- filenames[grep(paste0(var,".treats"),filenames)]
+data_names <- gsub(".varxcelltype_income_PCs_sex_age_and_treats_adjusted_withWave.txt", "", filenames) #remove file ending
 data_names <- gsub("ALL.0.2.50.", "", data_names)
 data_names <- gsub("deseqres_", "", data_names)
 for(i in 1:length(filenames)) assign(data_names[i], fread(file.path(myDir, filenames[i]),header = TRUE, sep='\t')) #read in specific files and set the df object names. can dro0p unwanted columns
 ddf <- lapply(data_names, function(x) get(x)) #grab data from list of df names
 names(ddf) <- c(data_names)
 deseqres <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) #recursively merge df from list of df. still not sure what accumulate does
-deseqres$contrast <- gsub(paste0(var,".treats"),"",deseqres$contrast)
 fwrite(deseqres, sep='\t', quote=F, row.names=F, col.names=T, paste0(myDir,project,".",resset,".",dimset,".deseqres_",var,".",run,".treatinteraction.txt"))
 
 myDir <- paste0(outFolder,"sigDEGs/")
 filenames <- list.files(myDir) #file list from directory
-filenames <- filenames[grep(paste0(var,".treats"),filenames)]
-data_names <- gsub(".income_PCs_sex_age_and_treats_adjusted_withWave.txt", "", filenames) #remove file ending
+#filenames <- filenames[grep(paste0(var,".treats"),filenames)]
+data_names <- gsub(".varxcelltype_income_PCs_sex_age_and_treats_adjusted_withWave.txt", "", filenames) #remove file ending
 data_names <- gsub("ALL.0.2.50.", "", data_names)
 data_names <- gsub("sigDEGs_", "", data_names)
 for(i in 1:length(filenames)) assign(data_names[i], fread(file.path(myDir, filenames[i]),header = TRUE, sep='\t')) #read in specific files and set the df object names. can dro0p unwanted columns
 ddf <- lapply(data_names, function(x) get(x)) #grab data from list of df names
 names(ddf) <- c(data_names)
 df <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) #recursively merge df from list of df. still not sure what accumulate does
-df$contrast <- gsub(paste0(var,".treats"),"",df$contrast)
 fwrite(df, sep='\t', quote=F, row.names=F, col.names=T, paste0(myDir,project,".",resset,".",dimset,".sigDEGs_",var,".",run,".treatinteraction.txt"))
 }
 
-#Work in progress
-
-myDir <- paste0(outFolder,"deseqres/")
-filenames <- list.files(myDir) #file list from directory
-filenames <- filenames[grep(".treatinteraction.txt",filenames)]
-data_names <- gsub(".income_PCs_sex_age_and_treats_adjusted_withWave.treatinteraction.txt", "", filenames) #remove file ending
-data_names <- gsub("ALL.0.2.50.deseqres_", "", data_names)
-for(i in 1:length(filenames)) assign(data_names[i], fread(file.path(myDir, filenames[i]),header = TRUE, sep='\t')) #read in specific files and set the df object names. can dro0p unwanted columns
-ddf <- lapply(data_names, function(x) get(x)) #grab data from list of df names
-names(ddf) <- c(data_names)
-deseqres <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) #recursively merge df from list of df. still not sure what accumulate does
-#colnames(deseqres) <- c("identifier","padj","pvalue","logFC","SE","var","cluster","contrast")
-
-myDir <- paste0(outFolder,"stats/")
-filenames <- list.files(myDir) #file list from directory
-filenames <- filenames[grep(".treatinteraction.txt",filenames)]
-data_names <- gsub(".income_PCs_sex_age_and_treats_adjusted_withWave.treatinteraction.txt", "", filenames) #remove file ending
-data_names <- gsub("ALL.0.2.50.stats_all_cell_types-", "", data_names)
-for(i in 1:length(filenames)) assign(data_names[i], fread(file.path(myDir, filenames[i]),header = TRUE, sep='\t')) #read in specific files and set the df object names. can dro0p unwanted columns
-ddf <- lapply(data_names, function(x) get(x)) #grab data from list of df names
-names(ddf) <- c(data_names)
-stats <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) #recursively merge df from list of df. still not sure what accumulate does
-colnames(stats) <- c("symb","description","cluster","contrast","number_samples","number_individuals","gene_number","tested_genes","DEGs_FDR","sigDEGs")
-stats <- transform(stats, symb_contrast=paste(symb,contrast,sep=":"))
-
-var50 <- subset(stats, sigDEGs>50)
-stats50 <- subset(stats, symb_contrast %in% var50$symb_contrast)
-wstats50 <- reshape(stats50[,-c(7,9,11)], idvar = c("symb","description","contrast"), timevar = "cluster", v.names=c("number_individuals","tested_genes","sigDEGs"), direction = "wide",sep=":")
+var50 <- subset(stats, DEGs_FDR_10>50)
+stats50 <- unique(subset(stats, contrast %in% var50$contrast))
+wstats50 <- reshape(stats50, idvar = c("symb","description","treats"), timevar = "contrast", v.names=c("number_individuals","tested_genes","DEGs_FDR_10"), direction = "wide",sep=":")
 
  my.max <- function(x) ifelse( !all(is.na(x)), max(x, na.rm=T), NA)
 
-degcols <- grep("sigDEGs",colnames(wstats50))
+degcols <- grep("DEGs_FDR_10",colnames(wstats50))
 subsubvars <- wstats50[,!grepl(paste(c(sapply(strsplit(colnames(wstats50[,degcols[ apply(wstats50[,degcols],MARGIN=2,FUN=my.max)<50]]),"[.]"),function(y) y[1]),"NA"),collapse="[.]|"),colnames(wstats50))]
-dft <- subsubvars[,-4] %>% flextable() %>% span_header(sep=":")
-cols <- seq(3,36,by=3)
+dft <- subsubvars[,-c(4:6)] %>% flextable() %>% span_header(sep=":")
+bodycol=ncol(subsubvars)-3
+cols <- seq(3,bodycol,by=3)
 border <- fp_border()
 big_border <- fp_border(color = "black", width = 2)
-dft <- align(dft, i = 1:2, j = c(4:length(subsubvars[,-4])), align = "center", part = "header")
-dft <- align(dft, i = NULL, j = c(4:length(subsubvars[,-4])), align = "center", part = "body")
+dft <- align(dft, i = 1:2, j = c(4:length(subsubvars[,-c(4:6)])), align = "center", part = "header")
+dft <- align(dft, i = NULL, j = c(4:length(subsubvars[,-c(4:6)])), align = "center", part = "body")
 dft <- vline(dft, i = NULL, j = c(cols), border = border, part = "all")
 dft <- border_outer(dft, part = "all", border = big_border)
 
 flextable::save_as_image(
   dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".treatinteraction.",run,".50degs.png"))
+  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".cellinteraction.",run,".50degs.png"))
 
 subsubvars_degonly <- subsubvars[,!grepl("number_individuals|tested_genes",colnames(subsubvars))]
-dft <- subsubvars_degonly[,-4] %>% flextable() %>% split_header(sep=":")
+dft <- subsubvars_degonly[,-c(4:6)] %>% flextable() %>% split_header(sep=":")
 dft <- border_outer(dft, part = "all", border = big_border)
 dft <- vline(dft, i = NULL, j = c(3), border = border, part = "all")
 dft <- align(dft, i = 2, j = NULL, align = "center", part = "header")
-dft <- align(dft, i = NULL, j = c(4:length(subsubvars_degonly[,-4])), align = "center", part = "body")
+dft <- align(dft, i = NULL, j = c(4:length(subsubvars_degonly[,-c(4:6)])), align = "center", part = "body")
 
 flextable::save_as_image(
   dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".treatinteraction.",run,".ndegonly.png"))
+  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".cellinteraction.",run,".ndegonly.png"))
 
-
-
-    set_caption(caption = "Table 8.1")  
 
 
 
