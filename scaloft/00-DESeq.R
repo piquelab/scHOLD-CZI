@@ -13,13 +13,12 @@ library(plyr)
 library(parallel)
 library(ggseurat)
 library(sva)
-library(data.table)
 
 future::plan(strategy = 'multicore', workers = 10)
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
 args <- commandArgs(trailingOnly = TRUE)
-args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","/rs/rs_grp_scaloft/scALOFT_2024/covariates/ALOFT_covariate_issues_fixed_n521_uniq-n265_04-03-2024.txt","ALL","demux","/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt",0.2) 
+args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","/rs/rs_grp_scaloft/scALOFT_2024/covariates/ALOFT_covariate_issues_fixed_uniq-n265_psesl-a2_fixed_12-19-2024.txt","ALL","demux","/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt",0.2) 
 
 base <- args[1]
 
@@ -51,6 +50,8 @@ dimset=50
 outFolder=paste0(base,method,"_pseudobulk_ctrl/")
 #for resolution 0.2 and including V2 chem
 outFolder=paste0(outFolder,"lessfilt/")
+outdir=paste0(base,"5b_IdenCelltype_",method,"/")
+
 #outFolder=paste0(outFolder,"dim13res0.3/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 
@@ -66,18 +67,45 @@ if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 exp <- fread("/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt")
 #eigenvec2 <- merge(exp,cov_file,by.x="Sample_ID",by.y="dbgap.ID",all.x=T)
 eigenvec2 <- merge(exp,cov_file,by="dbgap.ID",all.x=T)
-
-#havent run this yet -- Ali shared that not all waves were run for singlecell and to make sure everything is grabbed correctly this filter is needed
+#Ali shared that not all waves were run for singlecell and to make sure everything is grabbed correctly this filter is needed
 eigenvec2 <- eigenvec2 %>% dplyr::filter(SCAIP7_18 == 1 | SCAIP1_6 == 1)
 eigenvec2$Sample_ID <- eigenvec2$dbgap.ID
+eigenvec2 <- transform(eigenvec2, SCAIP1_6=ifelse(is.na(SCAIP1_6),0,SCAIP1_6)) #weird case where some are NA ... Ali not sure why
+#eigenvec2[eigenvec2$dbgap.ID=="AL-103",c("dbgap.ID","Wave","SCAIP1_6","SCAIP7_18")]
+
 #notrun_var <- c("DSES_01","DSES_03","PWaist","PHip")
 #colnumuotovar <- grep("czi_exp",colnames(eigenvec2))+1
 #psychvarstorun <- eigenvec2[,colnumuotovar:length(colnames(eigenvec2))]
 #psychvarstorun <- colnames(psychvarstorun)[!colnames(psychvarstorun) %in% notrun_var]
 #psychvarstorun <- colnames(eigenvec2[,22:57])
 psychvarstorun <- colnames(eigenvec2[,24:59])
+variables <- c("pedu", "pincme", 
+                "psesl", 
+                "pnsi", "cddstf",
+                "cdres", "cpwm",  "cpeqcm", "criskf", "cditsm", 
+                "IL5_co", "IL13_co", "IFNG_co", "IL5_hc", "IL13_hc", "IFNG_hc",
+                "baso_av", "eosi_av", "lymp_av", "mono_av", "neut_av",
+                "aBPFAM", "aBPFPM", "FEVPP", "FVCPP", "FFPP",
+                "cdatot", "csasg", "ctasfq", "ctasev", 
+                "csnuma",  "cssdh", "csslpq", 
+                "genPC1", "genPC2", "genPC3",  "Sex", "cage1", "ceth1", "cwght1", "chght1", "csex1",
+                "cgpd5", "cgpd", "cbpd"
+                )
+ 
+variable_names <- c("Parental Education", "Parental Income",
+                "Subjective SES", 
+                "Neighborhood Stress", "Self-disclosure", 
+                "Perceived responsiveness", "Parental Warmth", "YR Parent Child Conflict",  "Risky Family", "Youth Depression", 
+                "Stimulated IL-5", "Stimulated IL-13", "Stimulated IFNy", "Stimulated IL-5 cortisol trt", "Stimulated IL-13 cortisol trt", "Stimulated IFNy cortisol trt",    
+                "Basophils", "Esosinophils", "Lymphocytes", "Monocytes", "Neutrophils",
+                "Peak flow AM", "Peak flow PM", "FEV1 Percent Predicted", "FVC Precent Predicted", "FEV1/FVC Precent Predicted", 
+                "DD Asthma symptoms", "Nightly Asthma", "Asthma Frequency", "Asthma Severity", 
+                "Nightly Awakenings",  "Sleep Duration", "Sleep quality",
+                "New Genotype PC1", "New Genotype PC2", "New Genotype PC3","Sex_alph", "Age", "Ethnicity", "Weight", "Height", "sex",
+                "Female Menarche Status", "Female Puberty Score", "Male puberty score"
+                )
+variables_df <- data.frame(variable=variables, description=variable_names)
 
-outdir=paste0(base,"5b_IdenCelltype_",method,"/")
 opfn <- paste0(outdir,project,".seuratObj-.harmony-sctype-",resset,".",dimset,".rds")
 sc <- read_rds(opfn)
 
@@ -97,16 +125,28 @@ geneIDs.sex <- subset(geneIDs, chr=="Y" | chr=="X")
 geneIDs.male <- subset(geneIDs, chr=="Y" )
 geneIDs.female <- subset(geneIDs, chr=="X")
 
+#making cov file for eqtl mapping
+#First row gives the sample ID and each additional one corresponds to a single covariate
+#First column gives the covariate ID and each additional one corresponds to a sample
+#this selects the batchwave seen in the experimental data
+u_eigenvec2 <- merge(sc@meta.data[,c("Sample_ID","BATCH")],unique(eigenvec2[,-2]),by.x=c("Sample_ID","BATCH"),by.y=c("Sample_ID","Batch2"))
+u_eigenvec2 <- u_eigenvec2 %>%
+  dplyr::select(Sample_ID, everything())
+#fwrite(u_eigenvec2, sep='\t', quote=F, row.names=F, col.names=T, file="/rs/rs_grp_scaloft/scALOFT_2024/covariates/eigenvec2_u.txt")
+#u_eigenvec2[u_eigenvec2$Sample_ID=="AL-103",c("Sample_ID","Wave","SCAIP1_6","SCAIP7_18")]
+
 #from https://www.biostars.org/p/9482789/
 sc@meta.data$letter_clusters <- paste0("C",sc@meta.data$seurat_clusters)
 colOrd <- data.frame(NEW_BARCODE=names(sc$orig.ident))
-coldata_ex <- merge(sc@meta.data,eigenvec2,by.x=c("Sample_ID","BATCH"),by.y=c("Sample_ID","Batch2")) #first 2 columns are dbgapid ie. sampleid and batch
+coldata_ex <- merge(sc@meta.data,unique(eigenvec2[,-2]),by.x=c("Sample_ID","BATCH"),by.y=c("Sample_ID","Batch2")) #first 2 columns are dbgapid ie. sampleid and batch
 RcolData <- merge(colOrd, coldata_ex, by="NEW_BARCODE",all.x=T)
 RcolData <- RcolData[match(rownames(sc@meta.data), RcolData$NEW_BARCODE), ]
 sc@meta.data <-cbind(sc@meta.data,RcolData[,which(!colnames(RcolData) %in% colnames(sc@meta.data))])
 sc@meta.data$orig.ident <- "scaloft_comb"
 #check wavefilt worked:
 #unique(sc@meta.data[sc@meta.data$Sample_ID=="AL-030","Wave"]) #should be the data from wave B1
+#unique(sc@meta.data[sc@meta.data$Sample_ID=="AL-103",c("Sample_ID","Wave","SCAIP1_6","SCAIP7_18")])
+
 
 #if(!is.na(args[3])){
 #sc@meta.data$keep <- ifelse(sc@meta.data$Sample_ID %in% removeind, FALSE, TRUE)
@@ -116,24 +156,135 @@ sc@meta.data$orig.ident <- "scaloft_comb"
 
 sc[["sex_male"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc) %in% geneIDs.male$symbol])
 sc[["sex_female"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc) %in% geneIDs.female$symbol])
+sc@meta.data <- transform(sc@meta.data, SCAIP1_6=ifelse(is.na(SCAIP1_6),0,SCAIP1_6)) #weird case where some are NA ... Ali not sure why
 
-#opfn <- paste0(outFolder,project,".",resset,".",dimset,".wavefilt.seuratprecellcountfilt.RDS")
-#saveRDS(sc, file=opfn)
+opfn <- paste0(outFolder,project,".",resset,".",dimset,".wavefilt.seuratprecellcountfilt.RDS")
+saveRDS(sc, file=opfn)
+
 #sc <-readRDS(opfn)
+var="pedu"
+sc@meta.data$SCAIP1_6 <- as.factor(sc@meta.data$SCAIP1_6)
+for (var in psychvarstorun[c(1:10)]){
+  p <- ggplot(data = sc@meta.data) +
+    geom_boxplot(aes(x=SCAIP1_6, y=get(var),colour=SCAIP1_6)) 
+png(paste0(figuredir,project,".box_scaip1vs2_",var,".png"), width=1000, height=1000, res=120)
+print(p)
+dev.off()
+}
+
+
+
+###############  WIP
+sharedcols <- Reduce(intersect, list(colnames(eigenvec2),colnames(sc@meta.data)))
+eigen_shared <- eigenvec2[,..sharedcols]
+sc_shared <- sc@meta.data[,sharedcols]
+identical(eigenvec2[,..sharedcols],as.data.table(sc@meta.data)[,..sharedcols])
+identical_cols <- sapply(names(eigen_shared), function(x) identical(eigen_shared[[x]], sc_shared[[x]]))
+
+
+##################
+
+# 1 is male and 0 is female
+sc@meta.data$Sex_c <- ifelse(sc@meta.data$Sex==0, "female","male")
+p <- ggplot(data = sc@meta.data) +
+  xlab("sex by questionaire") +
+  cowplot::theme_cowplot()
+p1 <- p + geom_boxplot(aes(x=Sex_c, y=sex_male,colour=Sex_c)) + ylab("sex by male chromosome")
+p2 <- p + geom_boxplot(aes(x=Sex_c, y=sex_female,colour=Sex_c)) + ylab("sex by male chromosome")
+fig <-plot_grid(p1, p2, nrow=1, ncol=2, align="h")
+png(paste0(figuredir,project,".box_ncount_sex_averageind.png"), width=3000, height=1000, res=120)
+print(fig)
+dev.off()
+
+
+#additional plots (Sex, cage1, Wave, ceth1,factor_age,genPC1,pincme,cgpd,cbpd)
+sc@meta.data$integer_age=as.integer(sc@meta.data$cage1)
+sc@meta.data$factor_age=cut.default(sc@meta.data$cage1, 3, labels = NULL, include.lowest = FALSE, right = TRUE, dig.lab = 3)
+
+umapfiguredir="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/2.1_mergeCellRangerAnddemux/figures/"
+plotgroup="genPC1"
+fname=paste0(umapfiguredir,project,".Figure5.1_UMAP_Harmony-res",resset,".",dimset,"_group_",plotgroup,".png");
+png(fname,width=5000,height=5000, res=240)
+fig1 <- DimPlot(sc, reduction = "umap", group.by = plotgroup, pt.size = .5)+
+        ggtitle("")+
+  theme(legend.key.size = unit(50,"point"),panel.background = element_rect(fill="white",colour = "black"),
+    legend.title=element_blank(),axis.text.x = element_text(colour = "black",size = rel(1.3)),
+    axis.text.y = element_text(colour = "black",size = rel(1.3)), axis.title.x = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.3)), legend.text=element_text(size = rel(1.8)))
+print(fig1)
+dev.off()
+
+plotgroup="cgpd"
+fname=paste0(umapfiguredir,project,".Figure5.1_UMAP_Harmony-res",resset,".",dimset,"_group_",plotgroup,".png");
+png(fname,width=5000,height=5000, res=240)
+fig1 <- FeaturePlot(sc, features = plotgroup,  reduction = "umap", 
+                        cols = c("lightgrey", "darkblue")) & 
+  theme(panel.background = element_rect(fill="white",colour = "black"),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),
+    axis.text.y = element_text(colour = "black",size = rel(1.3)), axis.title.x = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.3)))
+print(fig1)
+dev.off()
+
+
+#findmarkers keep all clusters >10 cells
+cellcount <- as.data.frame(table(sc@meta.data$letter_clusters, sc@meta.data$orig.ident))
+lowcell <- subset(cellcount, Freq<10)
+if(dim(lowcell)[1]==0){cat( "no low cell counts")}else{sc <-subset(x = sc, subset = letter_clusters %in% unique(lowcell$Var1), invert = TRUE)}
+
+library(MAST)
+lapply(sc@meta.data$letter_clusters, function(type){
+    if(!isTRUE(file.size(paste0(outFolder,project,".",resset,".",dimset,".",type,"vsAll",".findmarkers.txt")) > 0)){
+  message(paste0("running ",type,"vsAll"))
+  df <- sc
+  Idents(df) <- df$letter_clusters
+cluster.markers <- FindMarkers(object = df, ident.1 = type, min.pct = 0.25)
+  cluster.markers <-transform(cluster.markers, gene=rownames(cluster.markers))
+    fwrite(cluster.markers, sep='\t', quote=F, row.names=F, file=paste0(outFolder,project,".",resset,".",dimset,".",type,"vsAll",".findmarkers.txt"))
+  rm(df)
+  gc(reset=TRUE)
+    }
+})
+
+#get number of cells per individual
+cellcount <- as.data.frame(table(sc@meta.data$Sample_ID, sc@meta.data$orig.ident))
+png(width = 8, height = 8, file=paste0(figuredir,project,".",resset,".",dimset,".cellcounts_perindividual_hist.png"), pointsize=12, 
+  bg = "transparent", units = "in", res = 1200)
+ggplot(data=cellcount, aes(Freq)) + 
+theme_bw()+
+geom_histogram(bins=50)
+dev.off()
+
+length(which(cellcount$Freq<100))
+
+#this was abandonded
+#lapply(sc@meta.data$letter_clusters, function(type){
+#  treat="PHA-DEX"
+#  control="PHA"
+#    if(!isTRUE(file.size(paste0(outFolder,project,".",resset,".",dimset,".",type,".",treat,"vs",control,".findmarkers.txt")) > 0)){
+#  message(paste0("running ",treat,"vs",control," ",type))
+#  df <- subset(sc, subset = letter_clusters == type)
+#  Idents(df) <- df$treats
+#  #if(length(subset(df, subset=treats=="CTRL", return.null = TRUE)$Barcode)>5 & length(subset(df, subset=treats=="LPS", return.null = TRUE)$Barcode)>5) {
+#  condition_diff1 <- FindMarkers(df, ident.1 = treat, ident.2 = control, logfc.threshold = 0.1, min.pct = .05, test.use = "MAST", latent.vars = c('percent.mt','nFeature_RNA','Sex','cage1'))
+#  fwrite(condition_diff1, sep='\t', quote=F, row.names=F, file=paste0(outFolder,project,".",resset,".",dimset,".",type,".",treat,"vs",control,".findmarkers.txt"))
+#  rm(df)
+#  gc(reset=TRUE)
+#    }
+#})
+
 
 cellcount <- as.data.frame(table(sc@meta.data$letter_clusters, sc@meta.data$orig.ident))
 lowcell <- subset(cellcount, Freq<3000)
 if(dim(lowcell)[1]==0){cat( "no low cell counts")}else{sc <-subset(x = sc, subset = letter_clusters %in% unique(lowcell$Var1), invert = TRUE)}
 # [1] C12 C13 C14 C15 C16 C17 C18 C19 C20 C21 C22 C23 C24
 
-p <- ggplot(data = sc) +
-  cowplot::theme_cowplot()
-p1 <- p + geom_boxplot(aes(x=Sex, y=sex_male,colour=Sex))
-p2 <- p + geom_boxplot(aes(x=Sex, y=sex_female,colour=Sex))
-fig <-plot_grid(p1, p2, nrow=2, ncol=1, align="h")
-png(paste0(figuredir,project,".box_ncount_sex.png"), width=3000, height=1000, res=120)
-print(fig)
-dev.off()
+cellcount <- transform(cellcount, removed=ifelse(Var1 %in% unique(lowcell$Var1), "Y", "N"))
+fwrite(cellcount[order(cellcount$Freq),-2], sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".cellcount.txt"))
+
+
+
+
 
 fig0 <- VlnPlot(sc, features = c("sex_male", "sex_female"), ncol = 2,pt.size = FALSE) 
 png(paste0(figuredir,project,".violin_ncount_sex.png"), width=3000, height=1000, res=120)
@@ -214,7 +365,7 @@ counts_ls[sapply(counts_ls, is.null)] <- NULL
 
 metadata_ls <- lapply(counts_ls, function(i){
     #i <- counts_ls[[1]]
-    cat("running ",i,"\t")
+    cat("running ",unique(i$letter_clusters),"\t")
     df <- data.frame(cluster_sample_id = colnames(i)) ## Initiate a data frame for cluster i with one row per sample (matching column names in the counts matrix)
     ## Use tstrsplit() to separate cluster (cell type) and sample IDs
     df$letter_clusters <- tstrsplit(df$cluster_sample_id, "_")[[1]]
@@ -249,7 +400,17 @@ all(names(counts_ls) == names(metadata_ls))
 
 opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.RData")
 save(counts_ls,metadata_ls, file=opfn)
-#load(opfn)
+load(opfn)
+
+clusters <- names(counts_ls)
+fwrite(clusters, sep='\t', quote=F, row.names=F, col.names=F, paste0(outFolder,project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
+
+cluster_celltype <- ldply(lapply(metadata_ls,function(i){
+    df <- unique(data.frame(cluster=i$letter_clusters,cell_type=i$customclassif))
+    return(df)
+}),data.frame)[,-1]
+fwrite(cluster_celltype, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".cluster_celltype.txt"))
+
 
 mclapply(names(counts_ls), function(cluster){
  #[c(7:9)] #to run clusters if job terminates part way through
@@ -277,6 +438,27 @@ mclapply(names(counts_ls), function(cluster){
     save(adjusted, file=opfn)
 })
 
+#adding PCs to combat model
+mclapply(names(counts_ls), function(cluster){
+ #[c(7:9)] #to run clusters if job terminates part way through
+    #cluster=names(counts_ls)[1]
+        cat("running ", cluster, "\n")
+    cluster_counts_sce <- counts_ls[[cluster]]
+    cluster_metadata_sce <- metadata_ls[[cluster]]
+    cluster_counts <- assay(cluster_counts_sce, "counts")
+    cluster_metadata <- data.frame(cluster_metadata_sce)
+    x <- subset(as.data.frame(table(cluster_metadata$BATCH)),Freq>0)
+    cluster_metadata <- subset(cluster_metadata,BATCH %in% unique(x$Var1))
+    cluster_metadata_var <- unique(cluster_metadata[,c("Sample_ID","BATCH","treats","Sex","cage1","genPC1","genPC2","genPC3")])
+    cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
+    cluster_counts_t <- cluster_counts[,which(colnames(cluster_counts) %in% rownames(cluster_metadata_var))]
+    all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
+    adjusted <- ComBat_seq(cluster_counts_t, batch=cluster_metadata_var$BATCH, group=NULL, covar_mod=cluster_metadata_var[,c("treats","Sex","cage1","genPC1","genPC2","genPC3")])
+    #cat(length(rownames(adjusted)),"\n")    
+    opfn <- paste0(outFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".PCs_sex_age_and_treats_adjusted_wavefilt.RData")
+    save(adjusted, file=opfn)
+})
+
 #adding SES and PCs to COMBAT (as seen in CZI)
 mclapply(names(counts_ls), function(cluster){
  #[c(7:9)] #to run clusters if job terminates part way through
@@ -300,58 +482,98 @@ mclapply(names(counts_ls), function(cluster){
     save(adjusted, file=opfn)
 })
 
-
-for (cluster in names(counts_ls)){
+#adding pincme 
+mclapply(names(counts_ls), function(cluster){
  #[c(7:9)] #to run clusters if job terminates part way through
     #cluster=names(counts_ls)[1]
         cat("running ", cluster, "\n")
-    fdr=0.05
     cluster_counts_sce <- counts_ls[[cluster]]
     cluster_metadata_sce <- metadata_ls[[cluster]]
     cluster_counts <- assay(cluster_counts_sce, "counts")
     cluster_metadata <- data.frame(cluster_metadata_sce)
-    cluster_metadata <- transform(cluster_metadata, treats=as.factor(treats))
-    cluster_metadata <- within(cluster_metadata, treats <- relevel(treats, ref = "CTRL"))
 
-    opfn <- paste0(outFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".sex_age_and_treats_adjusted.RData")
-    load(opfn)
-
-    cluster_metadata_var <- cluster_metadata[,c("Sample_ID","treats")]
+    x <- subset(as.data.frame(table(cluster_metadata$BATCH)),Freq>0)
+    cluster_metadata <- subset(cluster_metadata,BATCH %in% unique(x$Var1))
+    cluster_metadata_var <- unique(cluster_metadata[,c("Sample_ID","BATCH","treats","Sex","cage1","genPC1","genPC2","genPC3","pincme")])
     cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
-    cluster_counts <- cluster_counts[,which(colnames(cluster_counts) %in% rownames(cluster_metadata_var))]
+
+    cluster_counts_t <- cluster_counts[,which(colnames(cluster_counts) %in% rownames(cluster_metadata_var))]
+    all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
+    adjusted <- ComBat_seq(cluster_counts_t, batch=cluster_metadata_var$BATCH, group=NULL, covar_mod=cluster_metadata_var[,c("treats","Sex","cage1","genPC1","genPC2","genPC3","pincme")])
+    #cat(length(rownames(adjusted)),"\n")    
+    opfn <- paste0(outFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".income_PCs_sex_age_and_treats_adjusted.RData")
+    save(adjusted, file=opfn)
+})
+
+#treatment results lps v ctrl
+combatrun="income_PCs_sex_age_and_treats_adjusted"
+run="income_PCs_sex_age_and_treats_COMBAT_treatment"
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/")
+outFolder=paste0(baseoutFolder,run,"/")
+if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
+if (!file.exists(paste0(outFolder,"stats/"))) dir.create(paste0(outFolder,"stats/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"sigDEGs/"))) dir.create(paste0(outFolder,"sigDEGs/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"deseqres/"))) dir.create(paste0(outFolder,"deseqres/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"figures/"))) dir.create(paste0(outFolder,"figures/"), showWarnings=F)
+
+contrastdf_base <- data.frame(control=c("CTRL","LPS","CTRL","PHA"),treatment=c("LPS","LPS.DEX","PHA","PHA.DEX"))
+contrastdf <- transform(contrastdf_base, contrast1=paste0(control),contrast2=paste0("treats_",treatment))
+contrastdf <- transform(contrastdf,control=gsub("[.]","-",control),treatment=gsub("[.]","-",treatment))
+
+for (cluster in names(counts_ls)){
+  #[c(7:9)] #to run clusters if job terminates part way through
+  #cluster=names(counts_ls)[1]
+      cat("running ", cluster, "\n")
+  fdr=0.05
+  #cluster_counts_sce <- counts_ls[[cluster]]
+  cluster_metadata_sce <- metadata_ls[[cluster]]
+  #cluster_counts <- assay(cluster_counts_sce, "counts")
+  cluster_metadata <- data.frame(cluster_metadata_sce)
+  cluster_metadata <- transform(cluster_metadata, treats=as.factor(treats))
+  opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
+  load(opfn)
+  lapply(1:nrow(contrastdf),function(x) {
+    con=contrastdf[x,]
+    contrast=paste0(con$contrast2,"_vs_",con$contrast1)
+    cluster_metadata_var <- subset(cluster_metadata, treats %in% c(con$control,con$treatment)) #removing due to low ind counts
+    cluster_metadata_var <- within(cluster_metadata_var, treats <- factor(relevel(treats, ref = con$control)))
+    cluster_metadata_var <- cluster_metadata_var[,c("Sample_ID","treats")]
+    cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
+    cluster_counts <- adjusted[,which(colnames(adjusted) %in% rownames(cluster_metadata_var))]
+    cluster_metadata_var <- cluster_metadata_var[which(rownames(cluster_metadata_var) %in% colnames(cluster_counts)),]
     all(colnames(cluster_counts) == rownames(cluster_metadata_var))
 
-    cat("running treatment deseq \n")
+    cat("running",contrast,"deseq \n")
     # Create DESeq2 object        
     dds <- DESeqDataSetFromMatrix(cluster_counts, 
                                   colData = cluster_metadata_var, 
                                   design = ~ Sample_ID + treats)
-    #design = as.formula(paste0("~ LibBatch + Wave + Sex + cage1 + SCAIP1_6_genPC1 + SCAIP1_6_genPC2 + SCAIP1_6_genPC3 + as.numeric(",myvar, ")")))
     dds <- DESeq(dds,parallel=TRUE)
-    opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-treats",cluster,".sex_age_and_treats_adjusted.RData")
+    opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",contrast,".",cluster,".",run,".RDS")
     save(dds, file=opfn)
 
-    var="LPSvsCTRL"
-    cluster_metadata_t <- unique(subset(cluster_metadata[,c("Sample_ID","treats")], treats %in% c("LPS","CTRL")))
-    cluster_metadata_var <- cluster_metadata_t[complete.cases(cluster_metadata_t),] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
-    res <- results(dds, contrast=c("treats","LPS","CTRL"))
+    #res <- results(dds, contrast=c("treats","LPS","CTRL"))
+    res <- results(dds, name =con$contrast2)
     sub.table <- data.frame(res@rownames, res$'padj', res$'pvalue', res$'log2FoldChange', res$'lfcSE',stringsAsFactors=FALSE)
     names(sub.table) <- c('identifier', 'padj', 'pvalue', 'logFC','SE')
     sub.table <- sub.table[!is.na(sub.table$padj), ]
     cat("BH diff. expressed ids.  ", sapply(c(0.01,0.05,0.1,0.2),function (tr) c(paste(",",tr*100,"%FDR->"), sum(na.omit(res$padj)<tr))),"\n")
     sub.table$var=var
     sub.table$cluster=cluster
-    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",cluster,".deseqres_",var,".sex_age_and_treats_adjusted.txt"))
+    sub.table$contrast=contrast
+    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".",cluster,".deseqres_",contrast,".",run,".txt"))
     sigDEGs <- subset(sub.table,padj<fdr)
     sigDEGs <- sigDEGs[order(sigDEGs$padj), ]
-    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",cluster,".sigDEGs_",var,".sex_age_and_treats_adjusted.txt"))
-    table <- data.frame(symb=var, variable= var, cluster=cluster)
-        table$number_samples <- paste(nrow(cluster_metadata_var))
-        table$number_individuals <- paste(length(unique(cluster_metadata_var$Sample_ID)))
-    table$gene_number <- paste(nrow(adjusted))
+    fwrite(sigDEGs, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,".sigDEGs_",contrast,".",run,".txt"))
+    table <- data.frame(cluster=cluster,contrast=contrast)
+    table$number_samples <- paste(nrow(cluster_metadata_var))
+    table$number_individuals <- paste(length(unique(cluster_metadata_var$Sample_ID)))
+    table$gene_number <- paste(nrow(cluster_counts))
+    table$tested_genes <- paste(nrow(sub.table))
     table$DEGs_FDR <- paste(nrow(sigDEGs))
-    table$DEGs_FDR_logfc2 <- paste(nrow(subset(sub.table,padj<fdr & abs(logFC>0.5))))
-    fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",var,".sex_age_and_treats_adjusted.txt"))
+    table$DEGs_FDR_10 <- paste(nrow(subset(sub.table,padj<0.1)))
+    fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",contrast,".",run,".txt"))
+    })
 }
 
 var="LPSvsCTRL"
@@ -397,25 +619,32 @@ cluster=clusters[1]
     dev.off()
 #}
 
-combatrun="SES_PCs_sex_age_and_treats_adjusted"
-run="SES_PCs_sex_age_and_treats_adjusted_withWave"
+combatrun="income_PCs_sex_age_and_treats_adjusted"
+#run="income_PCs_sex_age_and_treats_adjusted_withWave_poscount"
+run="income_PCs_sex_age_and_treats_adjusted_withWave"
+#combatrun="PCs_sex_age_and_treats_adjusted_wavefilt"
+#run="PCs_sex_age_and_treats_adjusted_withWave"
+#combatrun="SES_PCs_sex_age_and_treats_adjusted"
+#run="SES_PCs_sex_age_and_treats_adjusted_withWave"
 #run="sex_age_and_treats_adjusted_wavefilt"
 #run="SES_PCs_sex_age_and_treats_adjusted"
-combatfolder=paste0(outFolder,combatrun,"/")
-outFolder=paste0(outFolder,run,"/")
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/")
+combatfolder=paste0(baseoutFolder,combatrun,"/")
+outFolder=paste0(baseoutFolder,run,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 if (!file.exists(paste0(outFolder,"stats/"))) dir.create(paste0(outFolder,"stats/"), showWarnings=F)
 if (!file.exists(paste0(outFolder,"sigDEGs/"))) dir.create(paste0(outFolder,"sigDEGs/"), showWarnings=F)
 if (!file.exists(paste0(outFolder,"deseqres/"))) dir.create(paste0(outFolder,"deseqres/"), showWarnings=F)
 if (!file.exists(paste0(outFolder,"sampleidwave/"))) dir.create(paste0(outFolder,"sampleidwave/"), showWarnings=F)
 if (!file.exists(paste0(outFolder,"sampleid_all/"))) dir.create(paste0(outFolder,"sampleid_all/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"figures/"))) dir.create(paste0(outFolder,"figures/"), showWarnings=F)
 
-runage=TRUE
+runage=FALSE
 withWave=TRUE
 puberty <-c("cgpd","cgpd5","pdpds5","cbpd","ppdpds","pspds")
 firstrunvars <- psychvarstorun[c(1:10)]
+#firstrunvars <- "psesl"
 for (cluster in names(counts_ls)){
-#for (cluster in c("C8","C9")){
     #cluster="C0"
         cat("running ", cluster, "\n")
     fdr=0.05
@@ -423,12 +652,9 @@ for (cluster in names(counts_ls)){
     cluster_metadata <- data.frame(cluster_metadata_sce)
     cluster_metadata <- transform(cluster_metadata, treats=as.factor(treats))
     cluster_metadata <- within(cluster_metadata, treats <- relevel(treats, ref = "CTRL"))
-    opfn <- paste0(combatfolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
+    opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
     load(opfn)
-            #run covariates separately for each treatment condition
     for(i in unique(cluster_metadata_sce$treats)){
-    #for(i in c("LPS","LPS-DEX","PHA","PHA-DEX")){
-            #lapply(list.df, subset, B!=2)
             #i <- "CTRL"
         cluster_metadata_t <- subset(cluster_metadata, treats==i)
         cluster_metadata_t <- transform(cluster_metadata_t, Sex=as.factor(Sex))
@@ -473,7 +699,7 @@ for (cluster in names(counts_ls)){
             fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".",cluster,".deseqres_",var,"-",i,".",run,".txt"))
             sigDEGs <- subset(sub.table,padj<fdr)
             sigDEGs <- sigDEGs[order(sigDEGs$padj), ]
-            fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,".sigDEGs_",var,"-",i,".",run,".txt"))
+            fwrite(sigDEGs, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,".sigDEGs_",var,"-",i,".",run,".txt"))
             table <- data.frame(symb=var, variable= var, cluster=cluster)
             table$number_samples <- paste(nrow(cluster_metadata_var))
             table$number_individuals <- paste(length(unique(cluster_metadata_var$Sample_ID)))
@@ -501,6 +727,7 @@ for (cluster in names(counts_ls)){
                 dds <- DESeqDataSetFromMatrix(cluster_counts_t, 
                                               colData = cluster_metadata_var, 
                                               design = as.formula(design))
+                dds <- estimateSizeFactors(dds, type = 'poscounts')
                 #design = as.formula(paste0("~ LibBatch + Wave + Sex + cage1 + SCAIP1_6_genPC1 + SCAIP1_6_genPC2 + SCAIP1_6_genPC3 + as.numeric(",myvar, ")")))
                 dds <- DESeq(dds,parallel=TRUE)
                 opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",i,"-",var,cluster,".",run,".RDS")
@@ -517,11 +744,12 @@ for (cluster in names(counts_ls)){
                 fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".",cluster,".deseqres_",var,"-",i,".",run,".txt"))
                 sigDEGs <- subset(sub.table,padj<fdr)
                 sigDEGs <- sigDEGs[order(sigDEGs$padj), ]
-                fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,".sigDEGs_",var,"-",i,".",run,".txt"))
+                fwrite(sigDEGs, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,".sigDEGs_",var,"-",i,".",run,".txt"))
                 table <- data.frame(symb=var, variable= var, cluster=cluster)
                 table$number_samples <- paste(nrow(cluster_metadata_var))
                 table$number_individuals <- paste(length(unique(cluster_metadata_var$Sample_ID)))
                 table$gene_number <- paste(nrow(cluster_counts_t))
+                table$tested_genes <- paste(nrow(sub.table))
                 table$DEGs_FDR <- paste(nrow(sigDEGs))
                 table$DEGs_FDR_10 <- paste(nrow(subset(sub.table,padj<0.1)))
                 fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
@@ -530,63 +758,64 @@ for (cluster in names(counts_ls)){
     }
 }
 
-var="pnsi"
-cluster="C6"
-i="CTRL"
-opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",i,"-",var,cluster,".",run,".RDS")
-dds <- read_rds(opfn)
-res <- results(dds)
-metadata(res)$filterThreshold
+#this was some QC work for checking individuals 
+#var="pnsi"
+#cluster="C6"
+#i="CTRL"
+#opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",i,"-",var,cluster,".",run,".RDS")
+#dds <- read_rds(opfn)
+#res <- results(dds)
+#metadata(res)$filterThreshold
 
-png(width = 8, height = 8, file=paste0(figuredir,project,".filterrejections-",var,"-",cluster,"-",i,".",run,".png"), pointsize=12, 
-  bg = "transparent", units = "in", res = 1200)
-plot(metadata(res)$filterNumRej, 
-     type="b", ylab="number of rejections",
-     xlab="quantiles of filter")
-lines(metadata(res)$lo.fit, col="red")
-abline(v=metadata(res)$filterTheta)
-dev.off()
+#png(width = 8, height = 8, file=paste0(figuredir,project,".filterrejections-",var,"-",cluster,"-",i,".",run,".png"), pointsize=12, 
+#  bg = "transparent", units = "in", res = 1200)
+#plot(metadata(res)$filterNumRej, 
+#     type="b", ylab="number of rejections",
+#     xlab="quantiles of filter")
+#lines(metadata(res)$lo.fit, col="red")
+#abline(v=metadata(res)$filterTheta)
+#dev.off()
 
-m <- melt(cluster_counts_t)
-png(width = 8, height = 8, file=paste0(figuredir,project,".countsxind-",var,"-",cluster,"-",i,".",run,".png"), pointsize=12, 
-  bg = "transparent", units = "in", res = 1200)
-ggplot(m,aes(x=Var1,y=value))+
-  theme_bw()+
-  geom_point()+ #aes(color=sig)
-    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
-    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
-    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
-    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
-dev.off()
+#m <- melt(cluster_counts_t)
+#png(width = 8, height = 8, file=paste0(figuredir,project,".countsxind-",var,"-",cluster,"-",i,".",run,".png"), pointsize=12, 
+#  bg = "transparent", units = "in", res = 1200)
+#ggplot(m,aes(x=Var1,y=value))+
+#  theme_bw()+
+#  geom_point()+ #aes(color=sig)
+#    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+#    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+#    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+#    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+#dev.off()
 
-png(width = 8, height = 8, file=paste0(figuredir,project,".counts_hist-",var,"-",cluster,"-",i,".",run,".png"), pointsize=12, 
-  bg = "transparent", units = "in", res = 1200)
-ggplot(data=m, aes(value)) + 
-theme_bw()+
-geom_histogram(bins=50)
-dev.off()
+#png(width = 8, height = 8, file=paste0(figuredir,project,".counts_hist-",var,"-",cluster,"-",i,".",run,".png"), pointsize=12, 
+#  bg = "transparent", units = "in", res = 1200)
+#ggplot(data=m, aes(value)) + 
+#theme_bw()+
+#geom_histogram(bins=50)
+#dev.off()
 
-var="pedu"
-cluster="C6"
-i="CTRL"
-m <- melt(cluster_counts_t)
-png(width = 8, height = 8, file=paste0(figuredir,project,".countsxind-",var,"-",cluster,"-",i,".",run,".png"), pointsize=12, 
-  bg = "transparent", units = "in", res = 1200)
-ggplot(m,aes(x=Var1,y=value))+
-  theme_bw()+
-  geom_point()+ #aes(color=sig)
-    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
-    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
-    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
-    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
-dev.off()
+#var="pedu"
+#cluster="C6"
+#i="CTRL"
+#m <- melt(cluster_counts_t)
+#png(width = 8, height = 8, file=paste0(figuredir,project,".countsxind-",var,"-",cluster,"-",i,".",run,".png"), pointsize=12, 
+#  bg = "transparent", units = "in", res = 1200)
+#ggplot(m,aes(x=Var1,y=value))+
+#  theme_bw()+
+#  geom_point()+ #aes(color=sig)
+#    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+#    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+#    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+#    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+#dev.off()
 
-png(width = 8, height = 8, file=paste0(figuredir,project,".counts_hist-",var,"-",cluster,"-",i,".",run,".png"), pointsize=12, 
-  bg = "transparent", units = "in", res = 1200)
-ggplot(data=m, aes(value)) + 
-theme_bw()+
-geom_histogram(bins=50)
-dev.off()
+#png(width = 8, height = 8, file=paste0(figuredir,project,".counts_hist-",var,"-",cluster,"-",i,".",run,".png"), pointsize=12, 
+#  bg = "transparent", units = "in", res = 1200)
+#ggplot(data=m, aes(value)) + 
+#theme_bw()+
+#geom_histogram(bins=50)
+#dev.off()
 
 
 sub.table <- ldply(lapply(names(counts_ls), function(cluster){
@@ -604,8 +833,8 @@ sub.table <- ldply(lapply(names(counts_ls), function(cluster){
         }),data.frame)
 fwrite(reshape2::dcast(sub.table, cluster ~ treats,value.var="number_ind"), sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sampleid_all/",project,".",resset,".",dimset,".sampleid_all.",run,".txt"))
 
-for (var in c(psychvarstorun)[c(1:length(psychvarstorun))][!psychvarstorun[c(1:length(psychvarstorun))] %in% puberty]){
-    #for (var in c(firstrunvars[c(5:10)],"age")){
+for (var in c("age",psychvarstorun)[c(1:length(psychvarstorun))][!psychvarstorun[c(1:length(psychvarstorun))] %in% puberty]){
+    #for (var in c(firstrunvars)){
     for (i in c("CTRL","LPS","LPS-DEX","PHA","PHA-DEX")){
         cat("running ",var," ",i,"\n")
     sub.table <- ldply(lapply(names(counts_ls), function(cluster){
@@ -636,6 +865,11 @@ for (var in c(psychvarstorun)[c(1:length(psychvarstorun))][!psychvarstorun[c(1:l
 }
 #filter: ALL.stats_all_cell_types*.nomissvars_PCs*
 
+
+
+
+
+
 #puberty variables run separately as they run per each sex
 puberty <-c("cgpd","cgpd5","pdpds5","cbpd","ppdpds","pspds")[c("cgpd","cgpd5","pdpds5","cbpd","ppdpds","pspds") %in% colnames(cov_file)]
 for (cluster in names(counts_ls)){
@@ -647,32 +881,45 @@ for (cluster in names(counts_ls)){
     cluster_metadata <- data.frame(cluster_metadata_sce)
     cluster_metadata <- transform(cluster_metadata, treats=as.factor(treats))
     cluster_metadata <- within(cluster_metadata, treats <- relevel(treats, ref = "CTRL"))
-    cluster_metadata <- transform(cluster_metadata, Sex=as.factor(ifelse(Sex==1,"female","male")))
+    cluster_metadata <- transform(cluster_metadata, Sex=as.factor(ifelse(Sex==0,"female","male")))
     if(all(c("male","female") %in% levels(cluster_metadata$Sex))){
         cluster_metadata <- within(cluster_metadata, Sex <- relevel(Sex, ref = "male"))
     }
-
-    opfn <- paste0(combatfolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
+    opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
+    #opfn <- paste0(combatfolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
     load(opfn)
             #run covariates separately for each treatment condition
     for(i in unique(cluster_metadata_sce$treats)){
     #for(i in c("LPS","LPS-DEX","PHA","PHA-DEX")){
     #i <- "CTRL"
         for(s in c("male","female")){
+        if (s=="female"){
+        puberty_sex <- c("cgpd5","cgpd")
+            }else {
+        puberty_sex <- c("cbpd")
+            }
         cluster_metadata_t <- subset(cluster_metadata, treats==i & Sex==s)
-        mclapply(puberty,function(var){
+            mclapply(puberty_sex, function(var){
         #var="pnsi"
-            if(!isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,"_",s,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){
-                cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","Wave","genPC1","genPC2","genPC3","Sex","cage1",var)]
+        missing=all(is.na(cluster_metadata_t[,var]))
+            if(isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,"_",s,".stats_all_ce+ _types-",var,"-",i,".",run,".txt")) >0)){
+                cat(var,cluster,i,s, "has run already \n")
+                next
+                } else if (missing){
+                    cat("var is all missing information")
+                    next
+                    } else{
+                cat("running")
+                cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","Wave","genPC1","genPC2","genPC3",var)]
                 cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
-                fwrite(cluster_metadata_var[,c("Sample_ID","Wave")], sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".",cluster,"_",s,".sampleidwave_",var,"-",i,".",run,".txt"))
+                fwrite(cluster_metadata_var[,c("Sample_ID","Wave")], sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sampleidwave/",project,".",resset,".",dimset,".",cluster,"_",s,".sampleidwave_",var,"-",i,".",run,".txt"))
                 cluster_counts_t <- adjusted[,which(colnames(adjusted) %in% rownames(cluster_metadata_var))]
                 cluster_metadata_var <- cluster_metadata_var[which(rownames(cluster_metadata_var) %in% colnames(cluster_counts_t)),]
                 all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
                 if(withWave==TRUE){
-                design <-  paste0("~ Wave + genPC1 + genPC2 + genPC3 + cage1 + ",var)
+                design <-  paste0("~ Wave + genPC1 + genPC2 + genPC3 + ",var)
                 } else {
-                design <-  paste0("~ genPC1 + genPC2 + genPC3 + cage1 + ",var)
+                design <-  paste0("~ genPC1 + genPC2 + genPC3 + ",var)
                 }
                 cat("running deseq ",var,cluster,i,s," \n")
                 dds <- DESeqDataSetFromMatrix(cluster_counts_t, 
@@ -694,17 +941,18 @@ for (cluster in names(counts_ls)){
                 fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".",cluster,"_",s,".deseqres_",var,"-",i,".",run,".txt"))
                 sigDEGs <- subset(sub.table,padj<fdr)
                 sigDEGs <- sigDEGs[order(sigDEGs$padj), ]
-                fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,"_",s,".sigDEGs_",var,"-",i,".",run,".txt"))
+                fwrite(sigDEGs, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,"_",s,".sigDEGs_",var,"-",i,".",run,".txt"))
                 table <- data.frame(symb=var, variable= var, cluster=cluster,sex=s)
                 table$number_samples <- paste(nrow(cluster_metadata_var))
                 table$number_individuals <- paste(length(unique(cluster_metadata_var$Sample_ID)))
                 table$gene_number <- paste(nrow(cluster_counts_t))
+                table$tested_genes <- paste(nrow(sub.table))
                 table$DEGs_FDR <- paste(nrow(sigDEGs))
                 table$DEGs_FDR_10 <- paste(nrow(subset(sub.table,padj<0.1)))
                 fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,"_",s,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
-            }
-        })
-    }
+                }
+            })
+        }
     }
 }
 
@@ -774,11 +1022,18 @@ variable_names <- c("Parental Education", "Parental Income",
                 )
 variables_df <- data.frame(variable=variables, description=variable_names)
 
+library(flextable)
 library(ftExtra)
 library(rlist)
+library(officer)
+border <- fp_border()
+big_border <- fp_border(color = "black", width = 2)
 
+#[!psychvarstorun %in% puberty]
 for (i in c("CTRL","LPS","LPS-DEX","PHA","PHA-DEX")){
 subvars <- ldply(lapply(psychvarstorun, function(var){
+#subvars <- ldply(lapply(firstrunvars, function(var){
+    cat("running",i,var,"\n")
     if(file.exists(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))){
     stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
     if(dim(subset(stats, DEGs_FDR_10>50))[1]<1){ #first subset variables that have at least one cluster with 50DEGs
@@ -802,10 +1057,65 @@ subvars <- ldply(lapply(psychvarstorun, function(var){
 
 dft <- subvars %>% flextable() %>% span_header()
 dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
-
 flextable::save_as_image(
   dft,
   path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,".png"))
+
+degcols <- grep("sigDEGs",colnames(subvars))
+subsubvars <- subvars[,!grepl(paste(c(sapply(strsplit(colnames(subvars[,degcols[ apply(subvars[,degcols],MARGIN=2,FUN=max)<50]]),"[.]"),function(y) y[1]),"NA"),collapse="[.]|"),colnames(subvars))]
+dft <- subsubvars %>% flextable() %>% span_header()
+dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
+
+flextable::save_as_image(
+  dft,
+  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,".50degs.png"))
+
+subsubvars_degonly <- subsubvars[,!grepl("numind|ngenes",colnames(subsubvars))]
+dft <- subsubvars_degonly %>% flextable() 
+dft <- border_outer(dft, part = "all", border = big_border)
+dft <- vline(dft, i = NULL, j = 2, border = border, part = "all")
+dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
+dft <- align(dft, i = NULL, j = c(3:length(subsubvars_degonly)), align = "center", part = "body")
+
+#dft <- align(dft, i = 1, j = NULL, align = "left", part = "body")
+flextable::save_as_image(
+  dft,
+  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,".ndegonly.png"))
+
+
 }
 
 
+#total DEGs
+run="income_PCs_sex_age_and_treats_adjusted_withWave"
+outFolder=paste0(outFolder,run,"/")
+
+subvars <- ldply(lapply(c("CTRL","LPS","LPS-DEX","PHA","PHA-DEX"), function(i){
+  psy <- ldply(lapply(c(variables_df$variable,"age"), function(var){
+#psy <- ldply(lapply(variables_df$variable, function(var){
+    cat("running",i,var,"\n")
+    if(file.exists(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))){
+    stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
+    stats=transform(stats, treat=i)
+    deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
+    DEGs_FDR_10=unique(subset(deseqres,padj<0.1)[,c("identifier","treats","var")])
+    return(DEGs_FDR_10)
+    }
+    }),data.frame)
+  return(psy)
+  }), data.frame)
+
+ctrl <- subset(subvars, treats=="CTRL")
+ctrl_s <- ddply(ctrl, c("var"), plyr::summarize,
+  sigDEGs=length(unique(identifier)))
+fwrite(ctrl_s, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-CTRL.",run,".txt"))
+
+stim <- subset(subvars, treats=="LPS" | treats=="PHA")
+stim_s <- ddply(stim, c("var"), plyr::summarize,
+  sigDEGs=length(unique(identifier)))
+fwrite(stim_s, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-stim.",run,".txt"))
+
+dex <- subset(subvars, treats=="LPS-DEX" | treats=="PHA-DEX")
+dex_s <- ddply(dex, c("var"), plyr::summarize,
+    sigDEGs=length(unique(identifier)))
+fwrite(dex_s, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-dex.",run,".txt"))
