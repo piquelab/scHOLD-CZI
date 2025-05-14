@@ -8,7 +8,7 @@ library(plyr)
 #######alt cell typing 
 args <- commandArgs(trailingOnly = TRUE)
 #args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/",0.3,"ALL","fastdemux") #for testing
-#args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",0.2,"ALL","demux",13) 
+args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",0.2,"ALL","demux",13) 
 
 base <- args[1]
 resset <- as.numeric(args[2])
@@ -18,11 +18,15 @@ dimset=args[5]
 cat("resolution=",resset,"\nproject=",project,"\n","method=",method,"\n")
 
 outdir=paste0(base,"5b_IdenCelltype_",method,"/")
+outdir=paste0(outdir,"indwavecellcountfilt/")
 if (!file.exists(outdir)) dir.create(outdir, showWarnings=F)
 
 # set new output dir for filtered out unmatched figures
 figuredir=paste0(outdir,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
+
+harmonyfolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/")
+harmonyfolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/indwavecellcountfilt/")
 
 source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
 # load cell type annotation function
@@ -62,15 +66,18 @@ opfn <- paste0(outdir,project,".seuratObj-.preharmony-sctype-",Sys.Date(),".rds"
 write_rds(sc, opfn)
 
 #harmony
+#use the following script to select conditions
 #the following is the old file naming convention - used to make res 0.3 dim 11 for CZI
 #opfn_i <- file.info(dir(paste0(base,"2.1_mergeCellRangerAnd",method,"/"), full.names=T, pattern=paste0(project,".seuratObj-post-clustering-res",resset)))
 #opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
+for (dimset in c(dimset, 50)){
 for (resset in c(0.1, 0.15, 0.2, 0.3, 0.4)){
-  if(!isTRUE(file.size(paste0(outdir,project,".perc_scores.harmony-sctype-",resset,".",dimset,".rds")) > 0)){
-  cat("running ",resset)
-opfn <- paste0(base,"2.1_mergeCellRangerAnd",method,"/",project,".seuratObj-post-clustering-res",resset,".",dimset,".rds")
+  if(!isTRUE(file.size(paste0(outdir,project,".seuratObj-.harmony-sctype-",resset,".",dimset,".rds")) > 0)){
+  cat("running ",dimset, resset,"\n")
+opfn <- paste0(harmonyfolder,project,".seuratObj-post-clustering-res",resset,".",dimset,".rds")
 sc <- read_rds(opfn)
 
+cat("starting sctype \n")
   es.max = sctype_score(scRNAseqData = sc[["RNA"]]$scale.data, scaled = TRUE, 
                       gs = gs_list$gs_positive, gs2 = gs_list$gs_negative)  #sc[["RNA"]]@scale.data for seurat V<5
   cL_resutls = do.call("rbind", lapply(unique(sc@meta.data$seurat_clusters), function(cl){
@@ -89,9 +96,11 @@ sc <- read_rds(opfn)
   p <- DimPlot(sc, reduction = "umap", label = TRUE, repel=TRUE, group.by = 'customclassif', pt.size = .1)
   print(p)
   dev.off()
+  cat("saving \n")
 opfn <- paste0(outdir,project,".seuratObj-.harmony-sctype-",resset,".",dimset,".rds")
 write_rds(sc, opfn)
 
+cat("starting percent calc \n")
 cL_resutls_perc <- ldply(lapply(split(cL_resutls,cL_resutls$cluster), function(i){
   #i <- split(cL_resutls,cL_resutls$cluster)[[1]]
   sumscore=sum(i$scores,na.rm=T)
@@ -104,26 +113,27 @@ cL_resutls_perc <- ldply(lapply(split(cL_resutls,cL_resutls$cluster), function(i
 opfn <- paste0(outdir,project,".perc_scores.harmony-sctype-",resset,".",dimset,".rds")
 write_rds(cL_resutls_perc, opfn)
 
-rm(sc,cL_resutls,es.max)
+rm(sc,cL_resutls,es.max,cl_type,cL_resutls_perc,p,sctype_scores)
 gc(reset=T)
 }
 }
 
 #opfn <- paste0(outdir,project,".perc_scores.harmony-sctype-",resset,".",dimset,".rds")
 #cL_resutls_perc <- read_rds(opfn)
-Bcell <- unique(cL_resutls_perc[grep("B cell",cL_resutls_perc$type),])$type
-Tcell <- unique(cL_resutls_perc[grep("T cell",cL_resutls_perc$type),])$type
-NKcell <- unique(cL_resutls_perc[grepl("Natural killer|NKT",cL_resutls_perc$type),])$type
-Monocyte <- unique(cL_resutls_perc[grepl("Monocyte|monocyte|Macrophage",cL_resutls_perc$type),])$type
-Dendritic <- unique(cL_resutls_perc[grep("Dendritic",cL_resutls_perc$type),])$type
-other <- unique(cL_resutls_perc$type)[!unique(cL_resutls_perc$type) %in% c(Bcell,Tcell,NKcell,Monocyte,Dendritic)]
-
-majorcelltype <- data.frame(majorcelltype=c(rep("Bcell",length(Bcell)),rep("Tcell",length(Tcell)),rep("NKcell",length(NKcell)),rep("Monocyte",length(Monocyte)),rep("Dendritic",length(Dendritic)),rep("other",length(other))),celltype=c(Bcell,Tcell,NKcell,Monocyte,Dendritic,other))
+cat("starting perc assignment \n")
 
 l_perc <- ldply(lapply(c(0.1, 0.15, 0.2, 0.3, 0.4),function(resset){
   #resset=0.2
+    cat("running ", resset,dimset,"\n")
   opfn <- paste0(outdir,project,".perc_scores.harmony-sctype-",resset,".",dimset,".rds")
   cL_resutls_perc <- read_rds(opfn)
+  Bcell <- unique(cL_resutls_perc[grep("B cell",cL_resutls_perc$type),])$type
+  Tcell <- unique(cL_resutls_perc[grep("T cell",cL_resutls_perc$type),])$type
+  NKcell <- unique(cL_resutls_perc[grepl("Natural killer|NKT",cL_resutls_perc$type),])$type
+  Monocyte <- unique(cL_resutls_perc[grepl("Monocyte|monocyte|Macrophage",cL_resutls_perc$type),])$type
+  Dendritic <- unique(cL_resutls_perc[grep("Dendritic",cL_resutls_perc$type),])$type
+  other <- unique(cL_resutls_perc$type)[!unique(cL_resutls_perc$type) %in% c(Bcell,Tcell,NKcell,Monocyte,Dendritic)]
+  majorcelltype <- data.frame(majorcelltype=c(rep("Bcell",length(Bcell)),rep("Tcell",length(Tcell)),rep("NKcell",length(NKcell)),rep("Monocyte",length(Monocyte)),rep("Dendritic",length(Dendritic)),rep("other",length(other))),celltype=c(Bcell,Tcell,NKcell,Monocyte,Dendritic,other))
   cL_resutls_perc <- transform(cL_resutls_perc, res=as.factor(resset),perc_score=ifelse(perc_score>=1,1,perc_score))
   cL_resutls_perc_cl <- ldply(lapply(split(cL_resutls_perc,cL_resutls_perc$cluster),function(c){
     #c <- split(cL_resutls_perc,cL_resutls_perc$cluster)[[8]]
@@ -145,7 +155,7 @@ l_perc <- ldply(lapply(c(0.1, 0.15, 0.2, 0.3, 0.4),function(resset){
     prop=sum(c_merge$topcell_match==1,na.rm=T)/length(c_merge$topcell_match)
     prop_df <- data.frame(customclassif=unique(c_merge$customclassif),res=as.factor(resset), cluster=unique(c$cluster),ncells=unique(c_merge$ncells),topcell=topcell,prop=prop)
     return(prop_df)
-}),data.frame)[,-1]
+  }),data.frame)[,-1]
 
 #   instead of doing an average of proportions, I would do an overall proportion, 
 # which should match SUM (porportion per cluster * cluster_size/total_cells) so bigger clusters weigh more that just a simple average of the per cluster proportion.
@@ -157,12 +167,15 @@ cL_resutls_perc_cl <- transform(cL_resutls_perc_cl, weighted_prop=prop*cell_frac
 #  avg_prop=mean(cL_resutls_perc_cl$prop,na.rm=T),se_prop=sd(cL_resutls_perc_cl$prop)/sqrt(length((cL_resutls_perc_cl$prop))),
 #  rangeL=range(cL_resutls_perc_cl$prop)[1],rangeH=range(cL_resutls_perc_cl$prop)[2])
 
-prop_df <- data.frame(res=as.factor(resset), nclusters=length(unique(cL_resutls_perc_cl$cluster)),
+df <- data.frame(dim=as.factor(dimset),res=as.factor(resset), nclusters=length(unique(cL_resutls_perc_cl$cluster)),
   sum_prop=sum(cL_resutls_perc_cl$weighted_prop,na.rm=T),
   rangeL=range(cL_resutls_perc_cl$weighted_prop)[1],rangeH=range(cL_resutls_perc_cl$weighted_prop)[2])
+return(df)
 }),data.frame)
 
-l_perc
+opfn <- paste0(outdir,project,".prop_df.harmony-sctype-",dimset,".txt")
+fwrite(l_perc, sep='\t', quote=F, row.names=F, col.names=T, file=opfn)
+
 
 #example tables from ALOFT
 #dim 50
