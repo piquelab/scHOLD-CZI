@@ -192,9 +192,7 @@ for (cluster in names(counts_ls)){
     for(i in c("RNA-CTRL","RNA-LPS")){
             #i <- "RNA-CTRL"
         cluster_metadata_t <- subset(cluster_metadata, treats==i)
-        cluster_metadata_t <- transform(cluster_metadata_t, sex_alph=as.factor(sex_alph),SNI_NumPeople_r=as.numeric(SNI_NumPeople_r))
-        cluster_metadata_t <- within(cluster_metadata_t, sex_alph <- relevel(sex_alph, ref = "Male"))
-
+        
         lapply(secondrunvars,function(var){
         #var="pnsi" var="DSES_07"
             if(var=="factor_HS_CRP"){
