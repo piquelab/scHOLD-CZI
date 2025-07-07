@@ -204,3 +204,33 @@ x = model.matrix( as.formula(~group+sex+age+race) , almatch_new)
 qr(x)$rank
 ncol(x) 
 t(x) %*% x
+
+#creating experimental covariate file (coppied basic form from GxP)
+exp <- fread("/rs/rs_grp_scaloft/scALOFT2025/covariates/experimental_covariates_start.txt")
+treatments <- c("LPS", "PHA", "PHA_DEX", "EtOH")
+treat_ind <- rep(treatments, length(exp$Participant.ID))
+expfull <- exp[rep(seq_len(nrow(exp)), each = length(treatments)), ]
+expfull <- transform(expfull,Treatment=treat_ind)
+expfull <- transform(expfull,Library=paste0(batch, "-", Treatment))
+fwrite(expfull, sep='\t', quote=F, row.names=F, col.names=T, file="/rs/rs_grp_scaloft/scALOFT2025/covariates/experimental_covariates.txt")
+
+
+#from v2_samples_batchassignment_050525.txt
+#check that the individuals there correspond to the individuals intended for SCAIP-19
+s <- fread("/rs/rs_grp_scaloft/scALOFT2025/v2_samples_batchassignment_050525.txt")
+scaip19 <- subset(s, batch_name=="SCAIP19")
+demux <- fread("/rs/rs_grp_scaloft/scALOFT2025/demux.summary_demuxlet.tsv")
+names(demux)[2] <- "dbgap.ID"
+fastdemux <- fread("/rs/rs_grp_scaloft/scALOFT2025/demux.summary_fastdemux.tsv")
+names(fastdemux)[2] <- "dbgap.ID"
+
+table(demux$dbgap.ID %in% scaip19$dbgap.ID)
+table(scaip19$dbgap.ID %in% demux$dbgap.ID)
+table(fastdemux$dbgap.ID %in% scaip19$dbgap.ID)
+
+#order by fam id == who are siblings
+scaip19[order(scaip19$fam_id)]
+
+
+
+
