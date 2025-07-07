@@ -127,4 +127,18 @@ gc()
 }
 }
 
+#plot control vs not
+sc@meta.data$ctrlvstreat <- ifelse(sc@meta.data$treats=="CTRL","CTRL","TREAT")
+group_colors <- c("CTRL" = "purple","TREAT" = "orange")
 
+fname=paste0(figuredir,project,".Figure5.1_UMAP_Harmony-res",resset,".",dimset,"_group_ctrlvstreat",".png");
+png(fname,width=5000,height=5000, res=240)
+fig1 <- DimPlot(sc, reduction = "umap", group.by = "ctrlvstreat", pt.size = .5)+
+        ggtitle("")+
+          scale_color_manual(values = group_colors) +
+  theme(legend.key.size = unit(50,"point"),panel.background = element_rect(fill="white",colour = "black"),
+    legend.title=element_blank(),axis.text.x = element_text(colour = "black",size = rel(1.3)),
+    axis.text.y = element_text(colour = "black",size = rel(1.3)), axis.title.x = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.3)), legend.text=element_text(size = rel(1.8)))
+print(fig1)
+dev.off()
