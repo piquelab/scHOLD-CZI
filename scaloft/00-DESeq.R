@@ -1,7 +1,6 @@
 library(DESeq2)
 library(qvalue)
 library(annotables)
-library(dplyr)
 library(tidyr)
 library(tidyverse)
 library(stringr)
@@ -9,7 +8,7 @@ require(BiocParallel)
 library(Seurat)
 library(scuttle)
 library(data.table)
-library(plyr)
+library(plyr);library(dplyr)
 library(parallel)
 library(ggseurat)
 library(sva)
@@ -147,6 +146,130 @@ sc@meta.data$orig.ident <- "scaloft_comb"
 #unique(sc@meta.data[sc@meta.data$Sample_ID=="AL-030","Wave"]) #should be the data from wave B1
 #unique(sc@meta.data[sc@meta.data$Sample_ID=="AL-103",c("Sample_ID","Wave","SCAIP1_6","SCAIP7_18")])
 
+#subset for 20cell count filt (just cell/ind)
+nind <- ddply(sc@meta.data, c("letter_clusters"), plyr::summarize,
+  ind=length(unique(Sample_ID)))
+fwrite(nind, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".indcount.txt"))
+counts <- plyr::count(sc@meta.data,c("letter_clusters","Sample_ID"))
+names(counts)[3] <- "ic_cellcounts"
+sc@meta.data <- left_join(sc@meta.data,counts,by=c("letter_clusters","Sample_ID"))
+rownames(sc@meta.data) <- sc@meta.data$NEW_BARCODE
+before=dim(sc@meta.data)[1]
+sc <- subset(sc, subset=ic_cellcounts>=20)
+after=dim(sc@meta.data)[1]
+cat("removed ", before-after, "combos","\n") #35,523
+#head(rownames(sc@meta.data))
+table(sc@meta.data$letter_clusters,sc@meta.data$treats)
+       CTRL   LPS LPS-DEX   PHA PHA-DEX
+  C0  48528 49956    6627 27166   29898
+  C1  29820 30360    4342 14351   16765
+  C10  2772  2881     346  2361    2149
+  C11  1577  1444      93  1671    1518
+  C12    50    68       5    46      53
+  C13    11     2       0     7       4
+  C2  25334 26909    3266 16662   16584
+  C24    37    43      42    23      40
+  C3  21629 22272    2150 16297   16545
+  C4  17942 18712    2036 17283   17773
+  C5  15454 16300    2256 15861   15321
+  C6   1327  1598      88 32345   23901
+  C7  14236  7781    2195  6922   11776
+  C8   6550  6495     888  4402    4627
+  C9   3829  3961     355  3792    3867
+
+nind <- ddply(sc@meta.data, c("letter_clusters"), plyr::summarize,
+  ind=length(unique(Sample_ID)))
+nind_ctrl <- subset(nind, treats=="CTRL")
+fwrite(nind, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".indcount_icfilt.txt"))
+
+sc[["sex_male"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc) %in% geneIDs.male$symbol])
+sc[["sex_female"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc) %in% geneIDs.female$symbol])
+
+opfn <- paste0(outFolder,project,".",resset,".",dimset,".wavefilt.icfilt.seurat.RDS")
+saveRDS(sc, file=opfn)
+#sc <- read_rds(opfn)
+
+#subset for 20cell count filt (combo without batch)
+nind <- ddply(sc@meta.data, c("letter_clusters","treats"), plyr::summarize,
+  ind=length(unique(Sample_ID)))
+fwrite(nind, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".indcount.txt"))
+counts <- plyr::count(sc@meta.data,c("treats","letter_clusters","Sample_ID"))
+names(counts)[4] <- "tic_cellcounts"
+sc@meta.data <- left_join(sc@meta.data,counts,by=c("treats","letter_clusters","Sample_ID"))
+rownames(sc@meta.data) <- sc@meta.data$NEW_BARCODE
+before=dim(sc@meta.data)[1]
+sc <- subset(sc, subset=tic_cellcounts>=20)
+after=dim(sc@meta.data)[1]
+cat("removed ", before-after, "combos","\n") #35,523
+#head(rownames(sc@meta.data))
+table(sc@meta.data$letter_clusters,sc@meta.data$treats)
+       CTRL   LPS LPS-DEX   PHA PHA-DEX
+  C0  48479 49898    6627 27096   29833
+  C1  29760 30268    4331 14102   16627
+  C10  1476  1414      21   834     837
+  C11   493   347       0   734     455
+  C2  25260 26818    3247 16529   16414
+  C3  21456 22100    1933 16076   16189
+  C4  17613 18311    1872 16909   17394
+  C5  15100 15930    2065 15499   14920
+  C6    595   584       0 32002   23515
+  C7  13729  7093    2050  6228   11306
+  C8   5451  5528     438  3311    3481
+  C9   2668  2873      60  2702    2794
+
+nind <- ddply(sc@meta.data, c("letter_clusters","treats"), plyr::summarize,
+  ind=length(unique(Sample_ID)))
+nind_ctrl <- subset(nind, treats=="CTRL")
+fwrite(nind, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".indcount_ticfilt.txt"))
+
+sc[["sex_male"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc) %in% geneIDs.male$symbol])
+sc[["sex_female"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc) %in% geneIDs.female$symbol])
+
+opfn <- paste0(outFolder,project,".",resset,".",dimset,".wavefilt.ticfilt.seurat.RDS")
+saveRDS(sc, file=opfn)
+
+#subset for 20cell count filt (combo with batch)
+counts <- plyr::count(sc@meta.data,c("Library","letter_clusters","Sample_ID"))
+names(counts)[4] <- "btic_cellcounts"
+sc@meta.data <- left_join(sc@meta.data,counts,by=c("Library","letter_clusters","Sample_ID"))
+rownames(sc@meta.data) <- sc@meta.data$NEW_BARCODE
+before=dim(sc@meta.data)[1]
+sc <- subset(sc, subset=btic_cellcounts>=20)
+after=dim(sc@meta.data)[1]
+cat("removed ", before-after, "combos","\n") #35,523
+#head(rownames(sc@meta.data))
+table(sc@meta.data$letter_clusters,sc@meta.data$treats)
+       CTRL   LPS LPS-DEX   PHA PHA-DEX
+  C0  48479 49898    6627 27096   29833
+  C1  29760 30268    4331 14102   16627
+  C10  1476  1414      21   834     837
+  C11   493   347       0   734     455
+  C2  25260 26818    3247 16529   16414
+  C3  21456 22100    1933 16076   16189
+  C4  17613 18311    1872 16909   17394
+  C5  15100 15930    2065 15499   14920
+  C6    595   584       0 32002   23515
+  C7  13729  7093    2050  6228   11306
+  C8   5451  5528     438  3311    3481
+  C9   2668  2873      60  2702    2794
+
+nind <- ddply(sc@meta.data, c("letter_clusters","treats"), plyr::summarize,
+  ind=length(unique(Sample_ID)))
+nind_ctrl <- subset(nind, treats=="CTRL")
+   letter_clusters treats ind
+1               C0   CTRL 217
+6               C1   CTRL 216
+11             C10   CTRL  48
+16             C11   CTRL  19
+20              C2   CTRL 216
+25              C3   CTRL 209
+30              C4   CTRL 195
+35              C5   CTRL 191
+40              C6   CTRL  16
+44              C7   CTRL 154
+49              C8   CTRL 120
+54              C9   CTRL  78
+fwrite(nind, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".indcount_bticfilt.txt"))
 
 #if(!is.na(args[3])){
 #sc@meta.data$keep <- ifelse(sc@meta.data$Sample_ID %in% removeind, FALSE, TRUE)
@@ -156,9 +279,9 @@ sc@meta.data$orig.ident <- "scaloft_comb"
 
 sc[["sex_male"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc) %in% geneIDs.male$symbol])
 sc[["sex_female"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc) %in% geneIDs.female$symbol])
-sc@meta.data <- transform(sc@meta.data, SCAIP1_6=ifelse(is.na(SCAIP1_6),0,SCAIP1_6)) #weird case where some are NA ... Ali not sure why
+#sc@meta.data <- transform(sc@meta.data, SCAIP1_6=ifelse(is.na(SCAIP1_6),0,SCAIP1_6)) #weird case where some are NA ... Ali not sure why
 
-opfn <- paste0(outFolder,project,".",resset,".",dimset,".wavefilt.seuratprecellcountfilt.RDS")
+opfn <- paste0(outFolder,project,".",resset,".",dimset,".wavefilt.bticfilt.seurat.RDS")
 saveRDS(sc, file=opfn)
 
 #sc <-readRDS(opfn)
@@ -171,8 +294,6 @@ png(paste0(figuredir,project,".box_scaip1vs2_",var,".png"), width=1000, height=1
 print(p)
 dev.off()
 }
-
-
 
 ###############  WIP
 sharedcols <- Reduce(intersect, list(colnames(eigenvec2),colnames(sc@meta.data)))
@@ -276,15 +397,12 @@ length(which(cellcount$Freq<100))
 
 cellcount <- as.data.frame(table(sc@meta.data$letter_clusters, sc@meta.data$orig.ident))
 lowcell <- subset(cellcount, Freq<3000)
+#basded on this should remove C11 as well -- holding off for now
 if(dim(lowcell)[1]==0){cat( "no low cell counts")}else{sc <-subset(x = sc, subset = letter_clusters %in% unique(lowcell$Var1), invert = TRUE)}
 # [1] C12 C13 C14 C15 C16 C17 C18 C19 C20 C21 C22 C23 C24
 
 cellcount <- transform(cellcount, removed=ifelse(Var1 %in% unique(lowcell$Var1), "Y", "N"))
-fwrite(cellcount[order(cellcount$Freq),-2], sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".cellcount.txt"))
-
-
-
-
+fwrite(cellcount[order(cellcount$Freq),-2], sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".cellcount_bticfilt.txt"))
 
 fig0 <- VlnPlot(sc, features = c("sex_male", "sex_female"), ncol = 2,pt.size = FALSE) 
 png(paste0(figuredir,project,".violin_ncount_sex.png"), width=3000, height=1000, res=120)
@@ -307,8 +425,8 @@ dev.off()
 
 sce <- as.SingleCellExperiment(sc)
 #seurat_clusters, treats, BATCH, Library
-opfn <- paste0(outFolder,project,".",resset,".",dimset,".wavefilt.singlecellexp.RData")
-save(sce, file=opfn)
+#opfn <- paste0(outFolder,project,".",resset,".",dimset,".wavefilt.icfilt.singlecellexp.RData")
+#save(sce, file=opfn)
 rm(sc)
 gc()
 #load(opfn)
@@ -316,6 +434,7 @@ gc()
 library(biomaRt)  
 mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
 genes <- biomaRt::getBM(attributes = c("hgnc_symbol", "chromosome_name","transcript_biotype"), filters = c("transcript_biotype","chromosome_name"),values = list("protein_coding",1:22), mart = mart)
+genesplusxy <- biomaRt::getBM(attributes = c("hgnc_symbol", "chromosome_name","transcript_biotype"), filters = c("transcript_biotype","chromosome_name"),values = list("protein_coding",c(1:22,"X","Y")), mart = mart)
 
 #/ aggregate by cluster,library info and covariate of interest:
 #sce <- subset(sce, ,!letter_clusters %in% unique(lowcell$Var1))
@@ -334,6 +453,60 @@ raw <- assay(summed, "counts")
 
 rm(sce)
 gc()
+counts_ls_XY <- lapply(unique(summed$letter_clusters), function(i){
+    cat("running ",i,"\t")
+    #i <- unique(summed$letter_clusters)[1]
+    cell_idx <- which(tstrsplit(colnames(summed), "_")[[1]] == i)
+    keep <- which(colnames(raw) %in% colnames(summed[, cell_idx]))
+    data <- raw[, keep]
+    filtered_data <- data > 0 
+    #filtered_data[filtered_data < 0] <- NA
+    cat(dim(data),"\t")
+    if(is.matrix(filtered_data)){
+    keep <- rowSums(filtered_data,na.rm=T) >= (ncol(data) / 4) #filter to keep genes expressed in 25% of samples
+    data <- unlist(data[keep, ])
+    cat(dim(data),"\t")
+    data <- data[rownames(data) %in% genesplusxy$hgnc_symbol, ]
+    cat(dim(data),"\n")
+    summed_filt <- summed[rownames(summed) %in% rownames(data), cell_idx]
+    #table(rownames(summed_filt) %in% geneIDs.sex$symbol)
+    return(summed_filt)
+    } else {
+    NULL
+    }
+  #counts_ls[[i]] <- summed[, cell_idx]
+  #names(counts_ls) <-
+    })
+names(counts_ls_XY) <-unique(summed$letter_clusters)
+counts_ls_XY[sapply(counts_ls_XY, is.null)] <- NULL
+
+metadata_ls_XY <- lapply(counts_ls_XY, function(i){
+    #i <- counts_ls[[1]]
+    cat("running ",unique(i$letter_clusters),"\t")
+    df <- data.frame(cluster_sample_id = colnames(i)) ## Initiate a data frame for cluster i with one row per sample (matching column names in the counts matrix)
+    ## Use tstrsplit() to separate cluster (cell type) and sample IDs
+    df$letter_clusters <- tstrsplit(df$cluster_sample_id, "_")[[1]]
+    df$BATCH  <- tstrsplit(df$cluster_sample_id, "_")[[2]]
+    df$Sample_ID  <- tstrsplit(df$cluster_sample_id, "_")[[3]]
+    df$treats  <- tstrsplit(df$cluster_sample_id, "_")[[4]]
+    test <- metadata %>% dplyr::select(-c(sex_male,sex_female,orig.ident,NEW_BARCODE,percent.mt,nCount_RNA,nFeature_RNA,NUM.READS,NUM.SNPS,RNA_snn_res.0.2))
+    #need to remove all RNA_snn_res columns so one per each resolution
+    test <- dplyr::select(test, -contains("RNA_snn_res"))
+    #test <- test %>% dplyr::select(-c(RNA_snn_res.0.3,RNA_snn_res.0.4))
+    test <- unique(transform(test,cluster_sample_id=paste(letter_clusters,BATCH,Sample_ID,treats,sep="_")))
+    #test[test$cluster_sample_id=="C0_SCAIP10_AL-021_CTRL",c(1:20)]
+    #test <- test[!duplicated(test$cluster_sample_id),]
+    df_n <- merge(df, unique(test), all.x=T)
+    ## Update rownames of metadata to match colnames of count matrix, as needed later for DE
+    rownames(df_n) <- df_n$cluster_sample_id
+    #df_n <- df_n[complete.cases(df_n), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
+    return(df_n)
+})
+
+all(names(counts_ls_XY) == names(metadata_ls_XY))
+
+opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.icfilt.plusXY.RData")
+save(counts_ls_XY,metadata_ls_XY, file=opfn)
 
 counts_ls <- lapply(unique(summed$letter_clusters), function(i){
     cat("running ",i,"\t")
@@ -341,9 +514,8 @@ counts_ls <- lapply(unique(summed$letter_clusters), function(i){
     cell_idx <- which(tstrsplit(colnames(summed), "_")[[1]] == i)
     keep <- which(colnames(raw) %in% colnames(summed[, cell_idx]))
     data <- raw[, keep]
-    #filtered_data <- data > 0 
-    filtered_data <- data
-    filtered_data[filtered_data < 0] <- NA
+    filtered_data <- data > 0 
+    #filtered_data[filtered_data < 0] <- NA
     cat(dim(data),"\t")
     if(is.matrix(filtered_data)){
     keep <- rowSums(filtered_data,na.rm=T) >= (ncol(data) / 4) #filter to keep genes expressed in 25% of samples
@@ -380,16 +552,6 @@ metadata_ls <- lapply(counts_ls, function(i){
     #test[test$cluster_sample_id=="C0_SCAIP10_AL-021_CTRL",c(1:20)]
     #test <- test[!duplicated(test$cluster_sample_id),]
     df_n <- merge(df, unique(test), all.x=T)
-    ## Retrieve cell count information for this cluster from global cell count table
-    idx <- which(colnames(t) == unique(df_n$letter_clusters))
-    cell_counts <- t[, idx]
-    ## Remove samples with zero cell contributing to the cluster
-    cell_counts <- cell_counts[cell_counts > 0]
-    ## Match order of cell_counts and sample_ids
-    sample_order <- match(df_n$Sample_ID, names(cell_counts))
-    cell_counts <- cell_counts[sample_order]
-    ## Append cell_counts to data frame
-    df_n$cell_count <- cell_counts
     ## Update rownames of metadata to match colnames of count matrix, as needed later for DE
     rownames(df_n) <- df_n$cluster_sample_id
     #df_n <- df_n[complete.cases(df_n), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
@@ -398,8 +560,9 @@ metadata_ls <- lapply(counts_ls, function(i){
 
 all(names(counts_ls) == names(metadata_ls))
 
-opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.RData")
+opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.icfilt.RData")
 save(counts_ls,metadata_ls, file=opfn)
+
 load(opfn)
 
 clusters <- names(counts_ls)
@@ -411,88 +574,21 @@ cluster_celltype <- ldply(lapply(metadata_ls,function(i){
 }),data.frame)[,-1]
 fwrite(cluster_celltype, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".cluster_celltype.txt"))
 
+combatrun="income_PCs_sex_age_and_treats_adjusted"
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/cell20filt/")
+if (!file.exists(baseoutFolder)) dir.create(baseoutFolder, showWarnings=F)
+if (!file.exists(paste0(baseoutFolder,"figures/"))) dir.create(paste0(baseoutFolder,"figures/"), showWarnings=F)
 
 mclapply(names(counts_ls), function(cluster){
- #[c(7:9)] #to run clusters if job terminates part way through
     #cluster=names(counts_ls)[1]
         cat("running ", cluster, "\n")
     cluster_counts_sce <- counts_ls[[cluster]]
     cluster_metadata_sce <- metadata_ls[[cluster]]
     cluster_counts <- assay(cluster_counts_sce, "counts")
     cluster_metadata <- data.frame(cluster_metadata_sce)
-
-    #I commented these out here, as it caused COMBAT to return the confounded error
-    #cluster_metadata <- transform(cluster_metadata, treats=as.factor(treats))
-    #cluster_metadata <- within(cluster_metadata, treats <- relevel(treats, ref = "CTRL"))
-
-    x <- subset(as.data.frame(table(cluster_metadata$BATCH)),Freq>0)
-    cluster_metadata <- subset(cluster_metadata,BATCH %in% unique(x$Var1))
-    cluster_metadata_var <- unique(cluster_metadata[,c("Sample_ID","BATCH","treats","Sex","cage1")])
-    cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
-
-    cluster_counts_t <- cluster_counts[,which(colnames(cluster_counts) %in% rownames(cluster_metadata_var))]
-    all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
-    adjusted <- ComBat_seq(cluster_counts_t, batch=cluster_metadata_var$BATCH, group=NULL, covar_mod=cluster_metadata_var[,c("treats","Sex","cage1")])
-    #cat(length(rownames(adjusted)),"\n")    
-    opfn <- paste0(outFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".sex_age_and_treats_adjusted_wavefilt.RData")
-    save(adjusted, file=opfn)
-})
-
-#adding PCs to combat model
-mclapply(names(counts_ls), function(cluster){
- #[c(7:9)] #to run clusters if job terminates part way through
-    #cluster=names(counts_ls)[1]
-        cat("running ", cluster, "\n")
-    cluster_counts_sce <- counts_ls[[cluster]]
-    cluster_metadata_sce <- metadata_ls[[cluster]]
-    cluster_counts <- assay(cluster_counts_sce, "counts")
-    cluster_metadata <- data.frame(cluster_metadata_sce)
-    x <- subset(as.data.frame(table(cluster_metadata$BATCH)),Freq>0)
-    cluster_metadata <- subset(cluster_metadata,BATCH %in% unique(x$Var1))
-    cluster_metadata_var <- unique(cluster_metadata[,c("Sample_ID","BATCH","treats","Sex","cage1","genPC1","genPC2","genPC3")])
-    cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
-    cluster_counts_t <- cluster_counts[,which(colnames(cluster_counts) %in% rownames(cluster_metadata_var))]
-    all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
-    adjusted <- ComBat_seq(cluster_counts_t, batch=cluster_metadata_var$BATCH, group=NULL, covar_mod=cluster_metadata_var[,c("treats","Sex","cage1","genPC1","genPC2","genPC3")])
-    #cat(length(rownames(adjusted)),"\n")    
-    opfn <- paste0(outFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".PCs_sex_age_and_treats_adjusted_wavefilt.RData")
-    save(adjusted, file=opfn)
-})
-
-#adding SES and PCs to COMBAT (as seen in CZI)
-mclapply(names(counts_ls), function(cluster){
- #[c(7:9)] #to run clusters if job terminates part way through
-    #cluster=names(counts_ls)[1]
-        cat("running ", cluster, "\n")
-    cluster_counts_sce <- counts_ls[[cluster]]
-    cluster_metadata_sce <- metadata_ls[[cluster]]
-    cluster_counts <- assay(cluster_counts_sce, "counts")
-    cluster_metadata <- data.frame(cluster_metadata_sce)
-
-    x <- subset(as.data.frame(table(cluster_metadata$BATCH)),Freq>0)
-    cluster_metadata <- subset(cluster_metadata,BATCH %in% unique(x$Var1))
-    cluster_metadata_var <- unique(cluster_metadata[,c("Sample_ID","BATCH","treats","Sex","cage1","genPC1","genPC2","genPC3","psesl")])
-    cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
-
-    cluster_counts_t <- cluster_counts[,which(colnames(cluster_counts) %in% rownames(cluster_metadata_var))]
-    all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
-    adjusted <- ComBat_seq(cluster_counts_t, batch=cluster_metadata_var$BATCH, group=NULL, covar_mod=cluster_metadata_var[,c("treats","Sex","cage1","genPC1","genPC2","genPC3","psesl")])
-    #cat(length(rownames(adjusted)),"\n")    
-    opfn <- paste0(outFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".SES_PCs_sex_age_and_treats_adjusted.RData")
-    save(adjusted, file=opfn)
-})
-
-#adding pincme 
-mclapply(names(counts_ls), function(cluster){
- #[c(7:9)] #to run clusters if job terminates part way through
-    #cluster=names(counts_ls)[1]
-        cat("running ", cluster, "\n")
-    cluster_counts_sce <- counts_ls[[cluster]]
-    cluster_metadata_sce <- metadata_ls[[cluster]]
-    cluster_counts <- assay(cluster_counts_sce, "counts")
-    cluster_metadata <- data.frame(cluster_metadata_sce)
-
-    x <- subset(as.data.frame(table(cluster_metadata$BATCH)),Freq>0)
+    #highcell <- cluster_metadata_bf[cluster_metadata_bf$cell_count>=20,c("comb","letter_clusters","cell_count")]
+    #cluster_metadata <- cluster_metadata_bf[rownames(cluster_metadata_bf) %in% rownames(highcell),]
+    x <- subset(as.data.frame(table(cluster_metadata$BATCH)),Freq>1)
     cluster_metadata <- subset(cluster_metadata,BATCH %in% unique(x$Var1))
     cluster_metadata_var <- unique(cluster_metadata[,c("Sample_ID","BATCH","treats","Sex","cage1","genPC1","genPC2","genPC3","pincme")])
     cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
@@ -501,9 +597,18 @@ mclapply(names(counts_ls), function(cluster){
     all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
     adjusted <- ComBat_seq(cluster_counts_t, batch=cluster_metadata_var$BATCH, group=NULL, covar_mod=cluster_metadata_var[,c("treats","Sex","cage1","genPC1","genPC2","genPC3","pincme")])
     #cat(length(rownames(adjusted)),"\n")    
-    opfn <- paste0(outFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".income_PCs_sex_age_and_treats_adjusted.RData")
+    opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
     save(adjusted, file=opfn)
 })
+
+genestoremove <- ldply(lapply(names(counts_ls), function(cluster){
+    opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
+    load(opfn)
+max=unique(rownames(which(adjusted >= .Machine$integer.max, arr.ind = TRUE)))
+return(data.frame(genes=max))
+}),data.frame)
+genestoremove
+#none so move on
 
 #treatment results lps v ctrl
 combatrun="income_PCs_sex_age_and_treats_adjusted"
@@ -522,7 +627,7 @@ contrastdf <- transform(contrastdf,control=gsub("[.]","-",control),treatment=gsu
 
 for (cluster in names(counts_ls)){
   #[c(7:9)] #to run clusters if job terminates part way through
-  #cluster=names(counts_ls)[1]
+  #cluster="C6"
       cat("running ", cluster, "\n")
   fdr=0.05
   #cluster_counts_sce <- counts_ls[[cluster]]
@@ -535,6 +640,7 @@ for (cluster in names(counts_ls)){
   lapply(1:nrow(contrastdf),function(x) {
     con=contrastdf[x,]
     contrast=paste0(con$contrast2,"_vs_",con$contrast1)
+    if(!isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",contrast,".",run,".txt")) > 0)){
     cluster_metadata_var <- subset(cluster_metadata, treats %in% c(con$control,con$treatment)) #removing due to low ind counts
     cluster_metadata_var <- within(cluster_metadata_var, treats <- factor(relevel(treats, ref = con$control)))
     cluster_metadata_var <- cluster_metadata_var[,c("Sample_ID","treats")]
@@ -549,16 +655,14 @@ for (cluster in names(counts_ls)){
                                   colData = cluster_metadata_var, 
                                   design = ~ Sample_ID + treats)
     dds <- DESeq(dds,parallel=TRUE)
-    opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",contrast,".",cluster,".",run,".RDS")
+    opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",contrast,".",cluster,".",run,".RData")
     save(dds, file=opfn)
 
-    #res <- results(dds, contrast=c("treats","LPS","CTRL"))
-    res <- results(dds, name =con$contrast2)
+    res <- results(dds, name =contrast)
     sub.table <- data.frame(res@rownames, res$'padj', res$'pvalue', res$'log2FoldChange', res$'lfcSE',stringsAsFactors=FALSE)
     names(sub.table) <- c('identifier', 'padj', 'pvalue', 'logFC','SE')
     sub.table <- sub.table[!is.na(sub.table$padj), ]
     cat("BH diff. expressed ids.  ", sapply(c(0.01,0.05,0.1,0.2),function (tr) c(paste(",",tr*100,"%FDR->"), sum(na.omit(res$padj)<tr))),"\n")
-    sub.table$var=var
     sub.table$cluster=cluster
     sub.table$contrast=contrast
     fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".",cluster,".deseqres_",contrast,".",run,".txt"))
@@ -573,27 +677,100 @@ for (cluster in names(counts_ls)){
     table$DEGs_FDR <- paste(nrow(sigDEGs))
     table$DEGs_FDR_10 <- paste(nrow(subset(sub.table,padj<0.1)))
     fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",contrast,".",run,".txt"))
+    }
     })
 }
 
-var="LPSvsCTRL"
-clustersrun <- ldply(lapply(names(counts_ls), function(cluster){
-    if(file.exists(paste0(outFolder,project,".",cluster,".deseqres_",var,".txt"))){
-        return(cluster)
+png(width = 6, height = 6, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",cluster,".",contrast,".",run,"_MAplot.png"), pointsize=12, bg = "transparent", units = "in", res = 1200)
+plotMA(res)
+dev.off()
+
+
+for (x in c(1:nrow(contrastdf))){
+    con=contrastdf[x,]
+    contrast=paste0(con$contrast2,"_vs_",con$contrast1)
+    cat("running ",contrast,"\n")
+    sub.table <- ldply(lapply(names(counts_ls), function(cluster){
+        if(file.exists(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".",cluster,".deseqres_",contrast,".",run,".txt"))){
+        sub.table <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".",cluster,".deseqres_",contrast,".",run,".txt"),header=T)
+        }
+        }),data.frame)
+    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres.",contrast,".",run,".txt"))
+    sub.table <- ldply(lapply(names(counts_ls), function(cluster){
+        if(file.exists(paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,".sigDEGs_",contrast,".",run,".txt"))){
+        sub.table <- fread(paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,".sigDEGs_",contrast,".",run,".txt"),header=T)
+        }    
+    }),data.frame)
+    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".sigDEGs.",contrast,".",run,".txt"))
+    sub.table <- ldply(lapply(names(counts_ls), function(cluster){
+        if(file.exists(paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",contrast,".",run,".txt"))){
+        sub.table <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",contrast,".",run,".txt"),header=T)
+        }
+    }),data.frame)
+    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",contrast,".",run,".txt"))
+}
+
+library(flextable)
+library(ftExtra)
+library(rlist)
+library(officer)
+border <- fp_border()
+big_border <- fp_border(color = "black", width = 2)
+
+#[!psychvarstorun %in% puberty]
+subvars <- ldply(lapply(c(1:nrow(contrastdf)), function(x){
+    con=contrastdf[x,]
+    contrast=paste0(con$contrast2,"_vs_",con$contrast1)
+    cat("running ",contrast,"\n")
+    if(file.exists(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",contrast,".",run,".txt"))){
+    stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",contrast,".",run,".txt"))
+    if(dim(subset(stats, DEGs_FDR_10>50))[1]<1){ #first subset variables that have at least one cluster with 50DEGs
+        cat("not enough DEGs","\n")
+        rm(stats)
+        } else{
+        deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres.",contrast,".",run,".txt"),select=c(1,6))
+        df <- ddply(deseqres, "cluster", plyr::summarize, ngenes=length(unique(identifier)))
+        newls <- lapply(names(counts_ls),function(c){
+            stats_c <- subset(stats,cluster==c)
+            dc <- subset(df, cluster==c)
+            d <- data.frame(numind=stats_c$number_individuals, ngenes=dc$ngenes,sigDEGs=stats_c$DEGs_FDR_10)
+            colnames(d) <- paste(c,colnames(d),sep=".")
+            return(d)
+            })
+            newls <- newls[sapply(newls, nrow)>0]
+            newtable <- data.frame(contrast=contrast,list.cbind(newls))
+            return(newtable)
+        }
     }
 }),data.frame)
-sub.table <- ldply(lapply(clustersrun$X..i.., function(cluster){
-    sub.table <- fread(paste0(outFolder,project,".",resset,".",dimset,".",cluster,".deseqres_",var,".txt"),header=T)
-    }),data.frame)
-fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".deseqres_",var,".txt"))
-sub.table <- ldply(lapply(clustersrun$X..i.., function(cluster){
-    sub.table <- fread(paste0(outFolder,project,".",resset,".",dimset,".",cluster,".sigDEGs_",var,".txt"),header=T)
-}),data.frame)
-fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".sigDEGs_",var,".txt"))
-sub.table <- ldply(lapply(clustersrun$X..i.., function(cluster){
-    sub.table <- fread(paste0(outFolder,project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",var,".txt"),header=T)
-}),data.frame)
-fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".stats_all_cell_types-",var,".txt"))
+
+dft <- subvars %>% flextable() %>% span_header()
+dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
+flextable::save_as_image(
+  dft,
+  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".png"))
+
+degcols <- grep("sigDEGs",colnames(subvars))
+subsubvars <- subvars[,!grepl(paste(c(sapply(strsplit(colnames(subvars[,degcols[ apply(subvars[,degcols],MARGIN=2,FUN=max)<50]]),"[.]"),function(y) y[1]),"NA"),collapse="[.]|"),colnames(subvars))]
+dft <- subsubvars %>% flextable() %>% span_header()
+dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
+
+flextable::save_as_image(
+  dft,
+  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".50degs.png"))
+
+subsubvars_degonly <- subsubvars[,!grepl("numind|ngenes",colnames(subsubvars))]
+dft <- subsubvars_degonly %>% flextable() 
+dft <- border_outer(dft, part = "all", border = big_border)
+dft <- vline(dft, i = NULL, j = 1, border = border, part = "all")
+dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
+dft <- align(dft, i = NULL, j = c(2:length(subsubvars_degonly)), align = "center", part = "body")
+
+#dft <- align(dft, i = 1, j = NULL, align = "left", part = "body")
+flextable::save_as_image(
+  dft,
+  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".ndegonly.png"))
+
 
 filenames <- list.files(outFolder) #file list from directory
 filenames1 <- filenames[grep("DESeq_output-", filenames)] #pick specific files from list
