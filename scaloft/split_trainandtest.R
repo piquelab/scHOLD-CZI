@@ -2,11 +2,11 @@
 #1. Import your gene expression matrix (rows as genes_cluster, columns as samples) and corresponding clinical data
 #2. split data
 
-require(caTools)
-set.seed(101) 
-sample = sample.split(data[,1], SplitRatio = .7)
-train = subset(data, sample == TRUE)
-test  = subset(data, sample == FALSE)
+#require(caTools)
+#set.seed(101) 
+#sample = sample.split(data[,1], SplitRatio = .7)
+#train = subset(data, sample == TRUE)
+#test  = subset(data, sample == FALSE)
 
 
 library(tidyr)
@@ -50,19 +50,23 @@ variable_names <- c("Parental Education", "Parental Income",
                 "Female Menarche Status", "Female Puberty Score", "Male puberty score"
                 )
 variables_df <- data.frame(variable=variables, description=variable_names)
+variables_dftorun <- subset(variables_df, !variable %in% c("csex1"))
 
 base="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/"
 method="demux"
 project="ALL"
 resset=0.2
 dimset=50
+resmethod="voom"
 combatrun="income_PCs_sex_age_and_treats_adjusted"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/")
-outFolder=paste0(baseoutFolder,"glmnet/lessfilt/")
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/cell20filt/")
+glmnetfolder=paste0(baseoutFolder,"glmnet/")
+if (!file.exists(glmnetfolder)) dir.create(glmnetfolder, showWarnings=F)
+outFolder=paste0(glmnetfolder,resmethod,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 figuredir=paste0(outFolder,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
-opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.RData")
+opfn <- paste0(base,method,"_pseudobulk_ctrl/lessfilt/",project,".",resset,".",dimset,".DESeq_countlists_wavefilt.RData")
 load(opfn)
 
 u_eigenvec2 <- unique(fread("/rs/rs_grp_scaloft/scALOFT_2024/covariates/eigenvec2_u.txt"))
@@ -70,21 +74,20 @@ u_eigenvec2 <- unique(fread("/rs/rs_grp_scaloft/scALOFT_2024/covariates/eigenvec
 u_eigenvec2 <- transform(u_eigenvec2, Sample_ID=gsub("-",".",Sample_ID))
 
 #was cinfirming NA was due to gene-cluster combo
-new_DF <- data[rowSums(is.na(data)) > 0,]
-new_DF[new_DF$V1=="ENSG00000115977",] %>% summarise_all(~all(is.na(.)))
-data_na <- ldply(lapply(names(counts_ls), function(cluster) {
-  Res1 <- fread(paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/",cluster,".",treat,".residuals_qnorm.txt"))
-  Res1$ensg_cluster <- paste0(Res1$V1,"_",cluster)
-  new_DF <- Res1[rowSums(is.na(Res1)) > 0,]  
-  return(new_DF)
-  }),data.frame)
-
+#new_DF <- data[rowSums(is.na(data)) > 0,]
+#new_DF[new_DF$V1=="ENSG00000115977",] %>% summarise_all(~all(is.na(.)))
+#data_na <- ldply(lapply(names(counts_ls), function(cluster) {
+#  Res1 <- fread(paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/",cluster,".",treat,".residuals_",resmethod,".txt"))
+#  Res1$ensg_cluster <- paste0(Res1$V1,"_",cluster)
+#  new_DF <- Res1[rowSums(is.na(Res1)) > 0,]  
+#  return(new_DF)
+#  }),data.frame)
 
 #for (treat in c("CTRL","LPS","LPS-DEX","PHA","PHA-DEX")){ #only have ctrl so far
   treat="CTRL"
 	cat("running",treat,"\n")
 data <- ldply(lapply(names(counts_ls), function(cluster) {
-	Res1 <- fread(paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/",cluster,".",treat,".residuals_qnorm.txt"))
+	Res1 <- fread(paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/",cluster,".",treat,".residuals_",resmethod,".txt"))
 	Res1$ensg_cluster <- paste0(Res1$V1,"_",cluster)
 	Res1 <- Res1 %>% dplyr::select(V1, ensg_cluster, everything())
 	return(Res1)
@@ -98,8 +101,18 @@ identical(colnames(data[,-c(1:2)]), cv_original$Sample_ID)
 # keep the full covariate and GE data before subsetting:
 cvfull <- cv_original
 datafull <- data[,-c(1:2)]
+if (!file.exists(paste0(outFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"))) {
+    cat("making file \n")
+table <- data.frame(variable=NA, description=NA, cor=NA,pvalue=NA,improve=NA,N=NA)
+fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"))
+}
+#45 vars
+firstrunvars <- variables_df$variable[c(1:15)]
+secondrunvars <- variables_df$variable[c(16:30)]
+thirdrunvars <- variables_df$variable[c(31:length(variables_df$variable))]
 
-allvars <- ldply(lapply(variables_df$variable, function(myvar){
+#allvars <- ldply(lapply(firstrunvars, function(myvar){
+lapply(thirdrunvars, function(myvar){
   # subset data to only samples that have y:
   cv <- na.omit(cv_original,cols=myvar)
   # subset data make sure they're in the same order:
@@ -190,11 +203,13 @@ allvars <- ldply(lapply(variables_df$variable, function(myvar){
 
   # add official variable name and save correlation:
   tab <- data.frame(variables_df[variables_df$variable==myvar,],cor=corr$estimate,pvalue=corr$p.value,improve, N)
-  return(tab)
-}),data.frame)
+  fwrite(tab, file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"), sep="\t", quote=FALSE, col.names=FALSE, row.names=FALSE, append=TRUE)
 
-fwrite(allvars, file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
-}
+  #return(tab)
+})#,data.frame)
+
+#fwrite(allvars, file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+#} #treatment loop
 
 #going back in and plotting splitting scaip1 and 2 as colors and equations
 #run script through making cvfull then load:
@@ -226,8 +241,9 @@ dev.off()
 })
 
 #larger table containing gene nums, plus corr from glmnet, data from Justyna? , #degs
-run="income_PCs_sex_age_and_treats_adjusted_withWave"
-degoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/",run,"/")
+deseqrun="income_PCs_sex_age_and_treats_adjusted_withWave"
+deseqoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/cell20filt/",deseqrun,"/")
+
 genenum <- ldply(lapply(c(variables_df$variable,"age"), function(myvar){
   if(file.exists(paste0(outFolder,project,".",resset,".",dimset,".",treat, ".", myvar, "-pred-genes.txt"))){
   df <- fread(file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".", myvar, "testedgenenum.txt"))
@@ -241,8 +257,8 @@ genenum <- ldply(lapply(c(variables_df$variable,"age"), function(myvar){
 }),data.frame)
 degnum <- ldply(lapply(c(variables_df$variable,"age"), function(var){
     cat("running",treat,var,"\n")
-    if(file.exists(paste0(degoutFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",treat,".",run,".txt"))){
-    stats <- fread(paste0(degoutFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",treat,".",run,".txt"))
+    if(file.exists(paste0(deseqoutFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",treat,".",deseqrun,".txt"))){
+    stats <- fread(paste0(deseqoutFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",treat,".",deseqrun,".txt"))
     stats_s <- data.frame(variable=var,totalDEGs=sum(stats$DEGs_FDR_10,na.rm=T))
     return(stats_s)
     }
@@ -257,11 +273,18 @@ justyna_lab <- fread(paste0(base,"justyna_variable_symb.txt"))
 justyna_symb <- merge(justyna[,-4],justyna_lab[,-c(1)],by.y="Short_form_label",by.x="variable")
 
 df <- merge(genenum,allvarscorr,by="variable")
-df2 <- merge(df,degnum,by="variable")
+df2 <- merge(df,degnum,by="variable",all=T)
 df3 <- merge(df2,justyna_symb[,c("symb","corr.justyna","pvalue.justyna","varexp.training.justyna","N.training.justyna")],by.x="variable",by.y="symb",all=T)
 
 df4 <- df3 %>% dplyr::select(c(variable,description,complete_genecluster,N,modelgenenum,cor,pvalue,var_explained,totalDEGs,corr.justyna,pvalue.justyna,varexp.training.justyna,N.training.justyna))
 fwrite(df4, file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".statstable_glmnet.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
+df4 <- fread(paste0(outFolder,project,".",resset,".",dimset,".",treat,".statstable_glmnet.txt"))
+sigus <- df4[df4$var_explained>=0.01,]
+sigjust <- df4[df4$varexp.training.justyna>=0.01,]
+justna <- df4[is.na(df4$varexp.training.justyna),]
+sigusonly <- sigus[!sigus$variable %in% sigjust$variable,]
+sigusonlynotjustna <- sigusonly[!sigusonly$variable %in% justna$variable,]
 
 library(ggrepel)
 df4sig <- subset(df4,var_explained>=0.01)
@@ -290,7 +313,7 @@ df4sig <- subset(df4,var_explained>=0.01)
 
 file=paste0(outFolder,project,".",resset,".",dimset,".",treat, ".", myvar, "-pred-genes.txt")
 
-genedf <- ldply(lapply(c(variables_df$variable,"age"), function(myvar){
+genedf <- ldply(lapply(c(variables_dftorun$variable,"age"), function(myvar){
   if(file.exists(paste0(outFolder,project,".",resset,".",dimset,".",treat, ".", myvar, "-pred-genes.txt"))){
   modelgenes <- fread(file=paste0(outFolder,project,".",resset,".",dimset,".",treat, ".", myvar, "-pred-genes.txt"), header=F)
   
@@ -310,12 +333,10 @@ genedf <- ldply(lapply(c(variables_df$variable,"age"), function(myvar){
 allvarscorr <- fread(file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"))
 names(allvarscorr)[5] <- "var_explained"
 allvarscorr_1 <- subset(allvarscorr, var_explained>=0.01)
-
 genedf_1 <- subset(genedf, variable %in% allvarscorr_1$variable)
 cytokinevars <- c("IL5_co","IL13_co","IFNG_co","IL5_hc","IL13_hc","IFNG_hc")
 genedf_2 <- subset(genedf_1, !variable %in% c("csex1","cage1","Sex","genPC1","genPC2","genPC3","cwght1","chght1","cgpd5","cgpd","cbpd",cytokinevars))
-
-genedfcols <- merge(genedf_2,variables_df,by="variable")
+genedfcols <- merge(genedf_2,variables_dftorun,by="variable",all.x=T)
 
 top10m <- reshape2::dcast(cluster ~ description, data=genedfcols, value.var="cellprop",fun.aggregate=mean,na.rm=T)
 rownames(top10m) <- top10m$cluster
@@ -328,9 +349,115 @@ png(width = 10, height = 10, file=paste0(figuredir,"cellprop_heatmap.png"), poin
       bg = "transparent", units = "in", res = 1200)
 par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
 ggcorrplot(myMat, method = "square", outline.col = "grey", ggtheme = ggplot2::theme_bw(), lab = TRUE, lab_size=2, digits = 1) +
-scale_fill_gradient2(low = "white", high = "red", breaks=c(0, 0.5), limit=c(0, 0.5)) + labs(fill = "Cell prop")
+scale_fill_gradient2(low = "white", high = "red", breaks=c(0, 0.75), limit=c(0, 0.75)) + labs(fill = "Cell prop")
     #theme(axis.text.x = element_text(angle = 45, hjust = 1, colour = a))
 dev.off()
+
+#variables not sig
+allvarscorr_L1 <- subset(allvarscorr, var_explained<0.01)
+genedf_1 <- subset(genedf, variable %in% allvarscorr_L1$variable)
+cytokinevars <- c("IL5_co","IL13_co","IFNG_co","IL5_hc","IL13_hc","IFNG_hc")
+genedf_2 <- subset(genedf_1, !variable %in% c("csex1","cage1","Sex","genPC1","genPC2","genPC3","cwght1","chght1","cgpd5","cgpd","cbpd",cytokinevars))
+genedfcols <- merge(genedf_2,variables_dftorun,by="variable")
+
+top10m <- reshape2::dcast(cluster ~ description, data=genedfcols, value.var="cellprop",fun.aggregate=mean,na.rm=T)
+rownames(top10m) <- top10m$cluster
+top10ms <- top10m[apply(top10m[,-1], 1, function(x) !all(x==0)),]
+top10msa <- top10ms[, colSums(top10ms != 0, na.rm = TRUE) > 0]
+myMat <- top10msa[,-1]
+
+png(width = 10, height = 10, file=paste0(figuredir,"cellprop_heatmap_nonsig.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 1200)
+par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
+ggcorrplot(myMat, method = "square", outline.col = "grey", ggtheme = ggplot2::theme_bw(), lab = TRUE, lab_size=2, digits = 1) +
+scale_fill_gradient2(low = "white", high = "red", breaks=c(0, 0.75), limit=c(0, 0.75)) + labs(fill = "Cell prop")
+    #theme(axis.text.x = element_text(angle = 45, hjust = 1, colour = a))
+dev.off()
+
+#compare cellcount and voom vs last run
+threshold <- 0.01
+previousoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/","glmnet/")
+
+allvarscorr <- fread(file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"))
+names(allvarscorr)[5] <- "var_explained"
+previousallvarscorr <- fread(file=paste0(previousoutFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"))
+names(previousallvarscorr)[5] <- "var_explained"
+
+merged_treat <- merge(allvarscorr,previousallvarscorr,by=c("variable","description"))
+merged_treat_all <- merged_treat %>% mutate(sig = case_when(
+var_explained.x>=threshold & var_explained.y>=threshold ~ "4BOTH_sig",
+var_explained.x >= threshold ~ "3current_sig",
+var_explained.y >= threshold ~ "2previous_sig",    
+))
+merged_treat_all$sig[is.na(merged_treat_all$sig)] <- "1Not_Sig"
+
+#forplotting <- subset(merged_treat_all, variable %in% variables_dftorun[c(1:10),"variable"])
+forplotting <- subset(merged_treat_all, !sig=="1Not_Sig" & variable %in% variables_dftorun[,"variable"])
+
+cols <- c("4BOTH_sig" = "green","1Not_Sig" = "grey","3current_sig" = "red", "2previous_sig" = "blue")
+p <- ggplot(forplotting, aes(x=var_explained.x, y=var_explained.y)) +
+  #facet_wrap(.~variable)+
+  theme_bw()+
+  xlab("current sig")+
+  ylab("previous sig")+
+  geom_point(size=5,aes(color=sig))+ #aes(color=sig)     
+  geom_vline(xintercept = 0.1, linetype="dotted",color="red")+
+  geom_hline(yintercept = 0.1, linetype="dotted",color="red")+
+  geom_abline()+
+  geom_label_repel(aes(label = description),
+                  box.padding   = 0.35, 
+                  point.padding = 0.5,
+                  segment.color = 'grey50')+
+  scale_colour_manual(values = cols)+
+#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+      png(width = 12, height = 12, file=paste0(outFolder,"figures/current_vs_previous.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 1200)
+print(p)
+dev.off()
+
+# corr matrix signatures
+library(psych)
+allvarscorr <- fread(file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"))
+names(allvarscorr)[5] <- "var_explained"
+dc <- dcast(.~variable,value.var="var_explained",allvarscorr)
+  corr <- corr.test(dc,adjust="none",ci=F)
+
+#1%var explained varaivles
+sigvars <- subset(variables_df, variable %in% allvarscorr_1$variable)
+predlist <- lapply(variables_df$variable, function(v) {
+  varpredictions <- fread(paste0(outFolder,project,".",resset,".",dimset,".",treat,".", v, "pred.txt"))
+  pred=varpredictions[,2]
+  names(pred)[1] <- v
+  rownames(pred) <- varpredictions$V1
+  return(pred)
+  })
+preddf <- list.cbind(predlist)
+corrmat <- corr.test(preddf,adjust="none",ci=F)
+myMat <- corrmat$r
+pMat <- corrmat$p
+myMat[is.na(pMat)] <- NA
+pMat[is.na(myMat)] <- NA
+
+png(width = 17, height = 8, file=paste0(figuredir,treat,".signaturecor_heatmap.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 1200)
+par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
+ggcorrplot(myMat, method = "square", outline.col = "grey", ggtheme = ggplot2::theme_bw(), lab = TRUE, lab_size=2, insig = "blank",p.mat = pMat, sig.level=0.1,digits = 1) +
+scale_fill_gradient2(low = "blue", high =  "red", mid = "white", midpoint = 0)
+    #theme(axis.text.x = element_text(angle = 45, hjust = 1, colour = a))
+dev.off()
+
+png(width = 17, height = 8, file=paste0(figuredir,treat,".signaturecor_pheatmap.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 1200)
+par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
+pheatmap(myMat, cluster_row = TRUE, cluster_col = TRUE, na_col = "grey90")
+dev.off()
+
+
 
 ############
 ############## COMPARE OLD TO NEW
