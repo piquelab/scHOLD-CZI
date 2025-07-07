@@ -6,7 +6,7 @@ library(plyr)
 library(data.table)
 
 args <- commandArgs(trailingOnly = TRUE)
-#args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","demux","/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt") #for testing "CZI2_group.txt"
+args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","demux","/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt") #for testing "CZI2_group.txt"
 base <- args[1]
 method <- args[2]
 sample_batch <- args[3]
@@ -76,17 +76,13 @@ exp <- exp %>% mutate(Sample_ID=dbgap.ID)
 d <- subset(plyr::count(exp,"Sample_ID"),freq>1)
 dp <- subset(plyr::count(exp,"Sample_ID"),freq<2)
 
-dl <- ldply(lapply(unique(d$Sample_ID),function(i){
-		df <- subset(exp, Sample_ID==i)
-		merge <- merge(cell.counts.filt, df, by.x = c("Sample_ID","BATCH"),by.y=c("Sample_ID","Batch2"))
+
+		merge <- merge(cell.counts.filt, d, by.x = c("Sample_ID","BATCH"),by.y=c("Sample_ID","Batch2"))
 		A_sum=sum(merge[grep("A$",merge$BATCH),"n"],na.rm=T)
 		B_sum=sum(merge[grep("B$",merge$BATCH),"n"],na.rm=T)
 		if(A_sum>B_sum){d_sum <- (unique(merge[grep("A$",merge$BATCH),]))} else if(B_sum>A_sum){d_sum <- (unique(merge[grep("B$",merge$BATCH),]))} else if(isTRUE(unique(merge$Batch)=="SCAIP5")){d_sum <- (unique(merge[grep("ChemV3",merge$chemistry),]))} 
-		return(d_sum)
-		}), data.frame)
-dl <- transform(dl, Batch2=BATCH, BATCH=gsub("[AB]$","",dl$BATCH),ID_BATCH=gsub("[AB]$","",dl$ID_BATCH),ID_Batch=paste0(dbgap.ID, "_", Batch))
-dl <- transform(dl, BATCH=gsub("V3","",dl$BATCH),ID_BATCH=gsub("V3","",dl$ID_BATCH))
-dl <- dl[,c("Sample_ID","EXP","BATCH","treats","n","Perc","comb","ID_BATCH","Batch","dbgap.ID","Batch2","ID_Batch")]
+
+
 
 merge <- rbind(dl, transform(merge(cell.counts.filt[,c("Sample_ID","EXP","BATCH","treats","n","Perc","comb","ID_BATCH")], subset(exp[,c(1:3,5)], Sample_ID %in% dp$Sample_ID), by = "Sample_ID",all.x=T),ID_Batch=paste0(dbgap.ID, "_", Batch2)))
 
@@ -156,3 +152,43 @@ sc <- subset(sc, subset=comb %in% rem.unm$comb)
 opfn <- paste0(outFolder,project,".seuratObj-postmerge-after-mt-filtering.",Sys.Date(),".rds") 
 write_rds(sc, opfn)
 
+#I CANT BELIEVE GITHUB DIDNT SAVE MY NEW SCRIPT
+############ OLD METHOD #########################
+################################################
+dl <- ldply(lapply(unique(d$Sample_ID),function(i){
+		df <- subset(exp, Sample_ID==i)
+		merge <- merge(cell.counts.filt, df, by.x = c("Sample_ID","BATCH"),by.y=c("Sample_ID","Batch2"))
+		A_sum=sum(merge[grep("A$",merge$BATCH),"n"],na.rm=T)
+		B_sum=sum(merge[grep("B$",merge$BATCH),"n"],na.rm=T)
+		if(A_sum>B_sum){d_sum <- (unique(merge[grep("A$",merge$BATCH),]))} else if(B_sum>A_sum){d_sum <- (unique(merge[grep("B$",merge$BATCH),]))} else if(isTRUE(unique(merge$Batch)=="SCAIP5")){d_sum <- (unique(merge[grep("ChemV3",merge$chemistry),]))} 
+		return(d_sum)
+		}), data.frame)
+dl <- transform(dl, Batch2=BATCH, BATCH=gsub("[AB]$","",dl$BATCH),ID_BATCH=gsub("[AB]$","",dl$ID_BATCH),ID_Batch=paste0(dbgap.ID, "_", Batch))
+dl <- transform(dl, BATCH=gsub("V3","",dl$BATCH),ID_BATCH=gsub("V3","",dl$ID_BATCH))
+dl <- dl[,c("Sample_ID","EXP","BATCH","treats","n","Perc","comb","ID_BATCH","Batch","dbgap.ID","Batch2","ID_Batch")]
+
+
+##############################
+#table of number of cells per library
+cell.counts.filt <- fread(paste0(outFolder,project,".cell.count.filter.100min.v1.tsv"))
+n100filtered <- fread(paste0(outFolder,project,".missing_samples_in_demultiplexing_results_duetoFilter.csv"))
+n100filtered <- transform(n100filtered, EXP=sapply(strsplit(comb,"_"),function(y) y[1]))
+allcellcounts <- rbind(n100filtered,cell.counts.filt,fill=T)
+cellperlib <- ddply(rem.unm, c("EXP"), plyr::summarize,
+	ncell=sum(n,na.rm=T))
+fwrite(cellperlib,sep='\t', quote=F, row.names=F, col.names=T, file=paste0(outFolder,project,".cell.count.nofilt_cellsperlibrary.txt"))
+
+
+#final after filtering
+rem.unm <- fread(paste0(outFolder,project,".cell.count.filter.100min.v2_unmatched_cells_removed.tsv"))
+
+cellperlib <- ddply(rem.unm, c("EXP"), plyr::summarize,
+	ncell=sum(n,na.rm=T))
+
+fwrite(cellperlib,sep='\t', quote=F, row.names=F, col.names=T, file=paste0(outFolder,project,".cell.count.filter.100min.v2_unmatched_cells_removed_cellsperlibrary.txt"))
+
+############
+#original cell counts from cellranger summary
+summarycellranger <- fread("/rs/rs_grp_scaloft/scALOFT_2024/counts_cellranger_hg38/summary.tsv")
+summarycellranger_cellperlibrary <- unique(summarycellranger[,c(1:2)])
+fwrite(summarycellranger_cellperlibrary,sep='\t', quote=F, row.names=F, col.names=T, file=paste0(outFolder,project,"summarycellranger_cellsperlibrary.txt"))
