@@ -1,6 +1,7 @@
 library(data.table)
 library(pheatmap)
 library(ggplot2)
+library(tidyverse)
 future::plan(strategy = 'multicore', workers = 10) #had an issue: One of the ‘future.apply’ iterations (‘future_lapply-1’) unexpectedly generated random numbers
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
@@ -10,9 +11,11 @@ method="demux"
 project="ALL"
 resset=0.2
 dimset=50
+resmethod="voom"
 combatrun="income_PCs_sex_age_and_treats_adjusted"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/")
-outFolder=paste0(baseoutFolder,"glmnet/")
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/cell20filt/")
+glmnetfolder=paste0(baseoutFolder,"glmnet/")
+outFolder=paste0(glmnetfolder,resmethod,"/")
 figuredir=paste0(outFolder,"figures/")
 
 
@@ -63,14 +66,14 @@ variable_names <- c("Parental Education", "Parental Income",
                 )
 variables_df <- data.frame(variable=variables, description=variable_names)
 
-preds <- preds[,!as.character(colnames(preds) %in% c("csex1"))]
+preds1 <- preds[,!colnames(preds) %in% c("csex1")]
 
 corr <- cor(preds1, use="pairwise.complete.obs")
 library("psych")
 corr.psych <- corr.test(preds1, adjust="none")
 # blank out non-significant correlations:
 corr <- corr*(corr.psych$p<0.05)
-pairs <- melt(corr)
+pairs <- reshape2::melt(corr)
 pairs <- pairs[!pairs$value %in% c(0,1),]
 write.table(pairs[,1:2], paste0(outFolder,"correlated-metagenes-list.txt"), sep="\t", quote=F, col.names=F, row.names=F)
 
@@ -83,7 +86,8 @@ corr <- data.frame(corr)
 corrsub <- corr[!is.na(corr$Sex),]
 corrnocol0 <- corrsub %>% keep(~!all(is.na(.x)))
 
-pdf(paste0(figuredir,"corr_predicted_pheatmap_clust.pdf"), width=18, height=15)
+png(width = 18, height = 15, file=paste0(figuredir,"corr_predicted_pheatmap_clust.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 1200)
 pheatmap(corrnocol0, cluster_row = TRUE, cluster_col = TRUE, na_col = "grey90")
 dev.off()
 #annotation_col = annotation_col, annotation_colors = ann_colors
@@ -117,6 +121,9 @@ png(width = 18, height = 15, file=paste0(figuredir,"corr_predicted_pheatmap_clus
       bg = "transparent", units = "in", res = 1200)
 pheatmap(corrnocol0, cluster_row = TRUE, cluster_col = TRUE, na_col = "grey90",breaks=myBreaks.corr, color=myColor)
 dev.off()
+
+
+
 
 
 
