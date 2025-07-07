@@ -32,13 +32,13 @@ deseq
 
 screen
 #if running 1_demux.R or 1b_demux_anal3-AR.R; 32G. merge_kallisto needs more (64); 2a cellranger needs more than 150; sctransform needs more than 200
-srun -q primary -n 10 -N 1-1 --mem=225G -t 10:00:00 --pty bash #-x hax\[0-13\]
+srun -q primary -n 10 -N 1-1 --mem=225G -t 10:00:00 --pty bash #-x hax[0-13]
 #srun -q express -p erprp -n 10 -N 1-1 --mem=75G -t 10:00:00 --pty bash
 #16G was too little mem, 4 hours randomly selected - can change this variable
 #some nodes have issues (ie. hax1 and hax2 were not loading ggplot2)
 #export MODULEPATH=$MODULEPATH:/wsu/el7/groups/piquelab/modulefiles
-module unload gnu7/7.3.0
-module load R/test_4.3.2 #old: module load r/4.2.0
+module swap gnu7/7.3.0 gnu9
+module load R/4.3.2 #old: module load r/4.2.0
 #module load gnu7/7.3.0 mpich/3.2.1 r/4.2.0 #one job instance required all this, not sure why
 
 #these arguments need to be input After getting interactive node - they are removed upon instance
