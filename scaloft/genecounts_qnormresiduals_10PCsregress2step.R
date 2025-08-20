@@ -1,5 +1,6 @@
 
 #this script was adapted to regress out the top 10 PCs for a QC check
+R
 library(tidyverse)
 library(edgeR)
 library(limma)
@@ -7,7 +8,7 @@ library(annotables)
 library(data.table)
 library(plyr);library(dplyr)
 
-job="CZI"
+job="ALOFT"
 #load in original counts info for clusters and treats used
 if(job=="ALOFT"){
 base="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/"
@@ -17,10 +18,10 @@ resset=0.2
 dimset=50
 combatrun="income_PCs_sex_age_and_treats_adjusted"
 baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/cell20filt/")
-opfn <- paste0(base,method,"_pseudobulk_ctrl/lessfilt/",project,".",resset,".",dimset,".DESeq_countlists_wavefilt.RData")
+opfn <- paste0(base,method,"_pseudobulk_ctrl/lessfilt/",project,".",resset,".",dimset,".DESeq_countlists_wavefilt.icfilt.RData")
 #opfn <- paste0(base,method,"_pseudobulk_ctrl/lessfilt/",project,".",resset,".",dimset,".DESeq_countlists_wavefilt.bticfilt.RData")
 load(opfn)
-outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/"
+outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/"
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 
 # load annotation
@@ -28,7 +29,7 @@ u_eigenvec2 <- fread("/rs/rs_grp_scaloft/scALOFT_2024/covariates/eigenvec2_u.txt
 treatments=c("CTRL","LPS","PHA","PHA-DEX")
 
 } else if(job=="CZI"){
-args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",11,0.2) #for testing
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",13,0.15) #for testing
 base <- args[1]
 cov_file=fread(args[2]) #this is the psych cov file
 project=args[3]
@@ -59,11 +60,11 @@ treatments=c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX")
 
 }
 if (!file.exists(paste0(outFolder,"vcf/"))) dir.create(paste0(outFolder,"vcf/"), showWarnings=F)
-if (!file.exists(paste0(outFolder,"counts/"))) dir.create(paste0(counts,"residuals/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"counts/"))) dir.create(paste0(outFolder,"counts/"), showWarnings=F)
 
 cv <- unique(u_eigenvec2)
 ##check for individuals with more than one sample
-cv %>% count("Sample_ID") %>% dplyr::filter(freq>1)
+cv %>% count(Sample_ID) %>% dplyr::filter(n>1)
 
 library("AnnotationHub")
 ah <- AnnotationHub()
@@ -80,7 +81,8 @@ names(geneIDs)[c(1,2,4,8)] <- c("ensgene","entrez","chr","biotype")
 geneIDs <- subset(geneIDs, biotype=="protein_coding")
 geneIDs <- transform(geneIDs, chr=as.character(chr),strand=as.character(strand))
 #this 1bp positioning for bed file is based on examples from qtltools and tensorqtl
-geneIDs <- transform(geneIDs, strand_start=ifelse(strand=="+",start,start+1),strand_end=ifelse(strand=="+",end,end-1))
+geneIDs <- transform(geneIDs, strand_start=ifelse(strand=="+",start,end),strand_end=ifelse(strand=="+",start+1,end+1))
+#geneIDs <- transform(geneIDs, strand_start=start,strand_end=start+1)
 geneIDs <- subset(geneIDs, chr %in% c(1:22))
 
 lapply(names(counts_ls),function(clus){
@@ -99,16 +101,17 @@ lapply(names(counts_ls),function(clus){
     genes <- rownames(cluster_counts_t)
     colnames(cluster_counts_t) <- cluster_metadata_t$Sample_ID
     cluster_counts_tg <- cbind(genes, as.data.frame(cluster_counts_t))
-    all_counts_bed <- merge(geneIDs[,c("chr","start","end","symbol","ensgene")],cluster_counts_tg,by.x="symbol",by.y="genes")
-    all_counts_bed <- all_counts_bed %>% relocate(ensgene,.after =end) %>% dplyr::select(-symbol) # have to use ensgene as there was multi gene symbols
-    all_counts_bed <- transform(all_counts_bed, chr=paste0("chr",chr))
-    fwrite(all_counts_bed, sep='\t', quote=F, row.names=F, col.names=T, file=paste0(outFolder,"counts/phenotypes_fastqtl.",clus,".",i,".bed"))
+    all_counts_bed <- merge(geneIDs[,c("chr","strand_start","strand_end","symbol","ensgene")],cluster_counts_tg,by.x="symbol",by.y="genes")
+    all_counts_bed <- all_counts_bed %>% relocate(ensgene,.after =strand_end) %>% dplyr::select(-symbol) # have to use ensgene as there was multi gene symbols
+    #all_counts_bed <- transform(all_counts_bed, chr=paste0("chr",chr))
+    names(all_counts_bed)[c(2:4)] <- c("start","end","gene_id")
+    fwrite(all_counts_bed, sep='\t', quote=F, row.names=F, col.names=T, file=paste0(outFolder,"counts/phenotypes.",clus,".",i,".bed"))
     samples <- data.frame(samples=colnames(all_counts_bed[,-c(1:4)]))
     fwrite(samples, sep='\t', quote=F, row.names=F, col.names=F, file=paste0(outFolder,"vcf/sample_list_fastqtl.",clus,".",i,".txt"))
-      cat(clus,i, length(samples$sample),"\n")
+    #  cat(clus,i, length(samples$sample),"\n")
   }
 })
-
+ctrl-z #background while running vcfs 
 
 #subset vcf to samples in data
 module load bcftools/1.19
@@ -122,15 +125,27 @@ bgzip /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.filtered.vcf &
 
 #vcf per treatment and cluster
 treat="CTRL"
-#for cluster in `awk 'NR>1 && NR<8{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
-for cluster in `awk 'NR>7 {print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+for cluster in `awk 'NR>2 && NR<8{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+#for cluster in `awk 'NR>7 {print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+for cluster in `awk 'NR>11{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
 echo running $cluster
-bcftools view -S /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/vcf/sample_list_fastqtl.$cluster.$treat.txt /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.gsubRI.vcf > /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/vcf/ref.ac1.$cluster.$treat.filtered.vcf
+bcftools view -S /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/vcf/sample_list_fastqtl.$cluster.$treat.txt /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.gsubRI.vcf > /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/vcf/ref.ac1.$cluster.$treat.filtered.vcf
 echo zipping
-bgzip /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/vcf/ref.ac1.$cluster.$treat.filtered.vcf && tabix -p vcf /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/vcf/ref.ac1.$cluster.$treat.filtered.vcf.gz
+bgzip --threads 10 /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/vcf/ref.ac1.$cluster.$treat.filtered.vcf && tabix -p vcf /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/vcf/ref.ac1.$cluster.$treat.filtered.vcf.gz
 echo making header
-bcftools view --header-only /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/vcf/ref.ac1.$cluster.$treat.filtered.vcf.gz | sed '/^##/d' | cut -f10- > /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/vcf/ref.ac1.$cluster.$treat.vcfheader.txt
+bcftools view --header-only /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/vcf/ref.ac1.$cluster.$treat.filtered.vcf.gz | sed '/^##/d' | cut -f10- > /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/vcf/ref.ac1.$cluster.$treat.vcfheader.txt
 done
+
+#not functional yet
+#data_path="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis"
+#treat="CTRL"
+#for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt | grep -v "C4"`;do
+#  echo submitting cluster $cluster
+#  sbatch --export=cluster="${cluster}",treat="${treat}",data_path="$data_path" ${data_path}/src/vcf_subset.sh 
+#  sleep 1
+#done
+
+
 
 #CZI
 mkdir /rs/rs_grp_schold/CZI/RNA/analysis/vcf
@@ -145,102 +160,29 @@ echo making header
 bcftools view --header-only /rs/rs_grp_schold/CZI/RNA/analysis/fastQTL/vcf/ref.ac1.removekin.$cluster.$treat.filtered.vcf.gz | sed '/^##/d' | cut -f10- > /rs/rs_grp_schold/CZI/RNA/analysis/fastQTL/vcf/ref.ac1.removekin.$cluster.$treat.filtered.vcfheader.txt
 done
 
+fg 
 
-library(tidyverse)
-library(edgeR)
-library(limma)
-library(annotables)
-library(data.table)
 future::plan(strategy = 'multicore', workers = 10)
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
-library("AnnotationHub")
-ah <- AnnotationHub()
-if(length(ah["AH98047"]) == 0) {
-  edb <- ah[["AH75011"]]
-} else {
-  edb <- ah[["AH98047"]]
-}
-geneIDs <- genes(edb) %>%
-  as.data.frame() %>% 
-  setDT(keep.rownames = "ensembl_gene_id") %>%
-  .[, c("ensembl_gene_id","entrezid","symbol","seqnames","start","end","strand","gene_biotype", "description")]
-names(geneIDs)[c(1,2,4,8)] <- c("ensgene","entrez","chr","biotype")
-geneIDs <- subset(geneIDs, biotype=="protein_coding")
-geneIDs <- transform(geneIDs, chr=as.character(chr),strand=as.character(strand))
-#this 1bp positioning for bed file is based on examples from qtltools and tensorqtl
-geneIDs <- transform(geneIDs, strand_start=ifelse(strand=="+",start,start+1),strand_end=ifelse(strand=="+",end,end-1))
-geneIDs <- subset(geneIDs, chr %in% c(1:22))
-
-job="CZI"
-
-if(job=="ALOFT"){
-base="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/"
-method="demux"
-project="ALL"
-resset=0.2
-dimset=50
-combatrun="income_PCs_sex_age_and_treats_adjusted"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/cell20filt/")
-opfn <- paste0(base,method,"_pseudobulk_ctrl/lessfilt/",project,".",resset,".",dimset,".DESeq_countlists_wavefilt.RData")
-#opfn <- paste0(base,method,"_pseudobulk_ctrl/lessfilt/",project,".",resset,".",dimset,".DESeq_countlists_wavefilt.bticfilt.RData")
-load(opfn)
-outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/"
-
-# load annotation
-u_eigenvec2 <- fread("/rs/rs_grp_scaloft/scALOFT_2024/covariates/eigenvec2_u.txt")
-treatments=c("CTRL","LPS","PHA","PHA-DEX")
-treat="CTRL"
-
-} else if(job=="CZI"){
-args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",11,0.2) #for testing
-base <- args[1]
-cov_file=fread(args[2]) #this is the psych cov file
-project=args[3]
-method=args[4]
-dimset=args[5]
-resset=args[6]
-outFolder=paste0(base,"fastQTL/")
-if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
-figuredir=paste0(outFolder,"figures/")
-combatrun="SES_PCs_sex_age_and_treats_adjusted_generem"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/cell20filt/")
-opfn <- paste0(base,method,"_pseudobulk_ctrl/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
-load(opfn)
-
-leadvar <- fread("/rs/rs_grp_schold/covariates/other_covariates/HOLD LEAD 5.27.25.csv")
-cov_pluslead <- merge(cov_file,leadvar,by="pID",all=T)
-cov_pluslead <- transform(cov_pluslead, Lead=ifelse(Lead==-99,NA,Lead))
-eigenvec2_o <- fread(file=paste0(base,"genotypePCnokin/",project,".eigenvec_pc.txt")) #will use col PC1
-eigenvec2 <- merge(eigenvec2_o[,-c("sex","sex_alph","age")],cov_pluslead,by.x="Sample_ID",by.y="dbgap.ID",all.x=T)
-notrun_var <- c("DSES_01","DSES_03","PWaist","PHip","SNI_NoP","sex","isel","pID") #SNI_NoP is the only variable that should be excluded based on the observed issues in score distributions that don’t make sense (negative values and extreme outliers)
-colnumuotovar <- grep("czi_exp",colnames(eigenvec2))+1
-psychvarstorun <- eigenvec2[,colnumuotovar:length(colnames(eigenvec2))]
-psychvarstorun <- colnames(psychvarstorun)[!colnames(psychvarstorun) %in% notrun_var]
-old_cytokines <- psychvarstorun[c(8,14:24)] #old cytokines
-keep=!colnames(eigenvec2) %in% c(notrun_var,old_cytokines)
-u_eigenvec2 <- eigenvec2[,..keep]
-treatments=c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX")
-treat="RNA-CTRL"
-
-}
-
+job="ALOFT"
 voom=TRUE
 cpmqqnorm=FALSE
 cluster="C6"
-if (!file.exists(paste0(outFolder,"residuals/"))) dir.create(paste0(outFolder,"residuals/"), showWarnings=F)
 if (!file.exists(paste0(outFolder,"covariates/"))) dir.create(paste0(outFolder,"covariates/"), showWarnings=F)
 
 cv <- unique(u_eigenvec2)
 
 clusters <- names(counts_ls)
+treat=treatments[1]
+
 lapply(clusters,function(cluster){
 #  lapply(treatments,function(treat){
     cat("running ",cluster,treat,"\n")
 
-countFile <- fread(paste0(outFolder,"counts/phenotypes_fastqtl.",cluster,".",treat,".bed"))
+countFile <- fread(paste0(outFolder,"counts/phenotypes.",cluster,".",treat,".bed"))
 data1 <- countFile[,-c(1:3)]
-data <- data1[data1$ensgene %in% geneIDs$ensgene,]
+data <- data1[data1$gene_id %in% geneIDs$ensgene,]
 data[is.na(data)] <- 0
 
 ## Normalization of data
@@ -252,7 +194,7 @@ sum(colnames(dge$counts) %in% cv$Sample_ID)
 #Transform counts to counts per million
 dge <- calcNormFactors(dge)
 cpm0 <- cpm(dge)
-rownames(cpm0) <- data$ensgene
+rownames(cpm0) <- data$gene_id
 samples <- dim(data)[2]
 #Remove genes that are lowly expressed
 table(rowSums(dge$counts==0)==samples) #Shows how many transcripts have 0 count across all samples
@@ -270,7 +212,7 @@ dim(dge) #before filter
 #dge <- dge[keep.exprs,]
 dge <- dge[keep.exprs,, keep.lib.sizes=FALSE] #this was the old script line, must have the wrong set of libraries loaded for it to run
 dim(dge) #genes that pass filter
-fwrite(data.frame(genes=dge$genes$ensgene), sep='\t', quote=F, row.names=F, col.names=T, file=paste0(outFolder,"residuals/",cluster,".",treat,".residualsgenes_",method,".txt"))
+fwrite(data.frame(genes=dge$genes$gene_id), sep='\t', quote=F, row.names=F, col.names=T, file=paste0(outFolder,cluster,".",treat,".residualsgenes_",method,".txt"))
 
 if(job=="ALOFT"){
 design <- model.matrix(~0+ as.factor(cv_d$Sex) + as.numeric(cv_d$cage1) + factor(cv_d$Wave) + as.numeric(cv_d$genPC1) + as.numeric(cv_d$genPC2) +as.numeric(cv_d$genPC3))
@@ -290,8 +232,8 @@ sum(abs(t(He)-He)) #Should be almost 0
 #save the residuals:
 Res <- data.frame(Res)
 colnames(Res) <- colnames(dge)
-rownames(Res) <- dge$genes$ensgene
-write.table(Res, paste0(outFolder,"residuals/",cluster,".",treat,".residuals_",method,".txt"), sep="\t", row.names=TRUE, quote=FALSE)
+rownames(Res) <- dge$genes$gene_id
+write.table(Res, paste0(outFolder,cluster,".",treat,".residuals_",method,".txt"), sep="\t", row.names=TRUE, quote=FALSE)
 }
 if(cpmqqnorm){
 dim(cpm0) #before filter
@@ -309,8 +251,8 @@ model <- lm(mat_qnorm ~ design_expanded, data = data.frame(mat_qnorm, cv_d))
 residuals <- t(residuals(model))
 Res1 <- data.frame(residuals)
 colnames(Res1) <- colnames(cpm)
-#rownames(Res1) <- cpm0$genes$ensgene
-write.table(Res1, paste0(outFolder,"residuals/",cluster,".",treat,".residuals_",method,".txt"), sep="\t", row.names=TRUE, quote=FALSE)
+#rownames(Res1) <- cpm0$genes$gene_id
+write.table(Res1, paste0(outFolder,cluster,".",treat,".residuals_",method,".txt"), sep="\t", row.names=TRUE, quote=FALSE)
 }
 })
 
@@ -319,7 +261,7 @@ write.table(Res1, paste0(outFolder,"residuals/",cluster,".",treat,".residuals_",
 
 #library(tidyverse)
 library(irlba)
-nPCs=25
+nPCs=20
 if(voom){
     method="voom"
 }else{
@@ -329,9 +271,9 @@ lapply(clusters,function(cluster){
 #  lapply(treatments,function(treat){
     cat("running ",cluster,treat,"\n")
 ## load normalized data / or residuals:
-Res1 <- fread(paste0(outFolder,"residuals/",cluster,".",treat,".residuals_",method,".txt"))
+Res1 <- fread(paste0(outFolder,cluster,".",treat,".residuals_",method,".txt"))
 if(job=="ALOFT"){
-vcfind <- colnames(fread(paste0(outFolder,"vcf/ref.ac1.",cluster,".",treat,".vcfheader.txt")))
+vcfind <- colnames(fread(paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/","vcf/ref.ac1.",cluster,".",treat,".vcfheader.txt")))
 } else if (job=="CZI"){
   vcfind <- colnames(fread(paste0(outFolder,"vcf/ref.ac1.removekin.",cluster,".",treat,".filtered.vcfheader.txt")))
 }
@@ -353,8 +295,8 @@ covs <- as_tibble(t(mypcs))
 covsord <- covs[,match(vcfind, colnames(covs)) ]
 cvs <- cbind(id=colnames(mypcs),covsord)
 
-fwrite(cvs, sep='\t', quote=F, row.names=F, col.names=T, file=paste0(outFolder,"covariates/PCcovariates_",method,"-FastQTL.",cluster,".",treat,".txt"))
-fwrite(cvs, sep='\t', quote=F, row.names=F, col.names=F, file=paste0(outFolder,"covariates/PCcovariates_",method,"-FastQTL_nohead.",cluster,".",treat,".txt"))
+fwrite(cvs, sep='\t', quote=F, row.names=F, col.names=T, file=paste0(outFolder,"covariates/PCcovariates_",method,".",cluster,".",treat,".txt"))
+fwrite(cvs, sep='\t', quote=F, row.names=F, col.names=F, file=paste0(outFolder,"covariates/PCcovariates_",method,"nohead.",cluster,".",treat,".txt"))
 
 PCvar <- data.frame(summary(PCs)$importance)[2,]
 PCvar <- t(PCvar)
@@ -363,6 +305,7 @@ PCvar <- t(PCvar)
 fwrite(PCvar, sep='\t', quote=F, row.names=F, col.names=T, file=paste0(outFolder,"covariates/var_explained_by_GE_PCs_",method,".",cluster,".",treat,".txt"))
 }
 })
+ctrl-z #background while grabbing PCs
 
 #had 1-30 PCs but unnecessary to do that many
 treat="CTRL"
@@ -370,8 +313,8 @@ method="voom"
 #ALOFT
 for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
   for i in $(seq 1 20); do 
-  if [ -f /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/covariates/PCcovariates_${method}-FastQTL.$cluster.$treat.txt ]; then 
-  head -n $(($i+1)) /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/covariates/PCcovariates_${method}-FastQTL.$cluster.$treat.txt > /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/covariates/$cluster.$treat.PC1-$i.covariates_${method}-FastQTL.txt
+  if [ -f /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/covariates/PCcovariates_${method}.$cluster.$treat.txt ]; then 
+  head -n $(($i+1)) /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/covariates/PCcovariates_${method}.$cluster.$treat.txt > /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/covariates/$cluster.$treat.PC1-$i.covariates_${method}.txt
   fi
   done
 done
@@ -388,17 +331,19 @@ done
 
 
 #step 3 regress out PCs
-lapply(clusters,function(cluster){
+fg 
+
+lapply(names(counts_ls),function(cluster){
 #  lapply(treatments,function(treat){
 for (pcnum in seq(1:20)){
-    if(isTRUE(file.size(paste0(outFolder,"covariates/",cluster,".",treat,".PC1-",pcnum,".covariates_",method,"-FastQTL.txt")) > 0)){
+    if(isTRUE(file.size(paste0(outFolder,"covariates/",cluster,".",treat,".PC1-",pcnum,".covariates_",method,".txt")) > 0)){
       cat("running ",cluster,treat,pcnum,"\n")
-    PCs <- fread(paste0(outFolder,"covariates/",cluster,".",treat,".PC1-",pcnum,".covariates_",method,"-FastQTL.txt"))
+    PCs <- fread(paste0(outFolder,"covariates/",cluster,".",treat,".PC1-",pcnum,".covariates_",method,".txt"))
     design_expanded <- model.matrix(~0+ t(PCs[,-1]))
-    Res1 <- fread(paste0(outFolder,"residuals/",cluster,".",treat,".residuals_",method,".txt"))
+    Res1 <- fread(paste0(outFolder,cluster,".",treat,".residuals_",method,".txt"))
     Resnoid <- Res1[,-1]
     cv_d <- subset(cv, Sample_ID %in% colnames(Resnoid))
-    resgenes <- fread(paste0(outFolder,"residuals/",cluster,".",treat,".residualsgenes_",method,".txt"))$genes
+    resgenes <- fread(paste0(outFolder,cluster,".",treat,".residualsgenes_",method,".txt"))$genes
     model <- lm(t(Resnoid) ~ design_expanded, data = data.frame(t(Resnoid), cv_d))
     # Extract residuals
     residuals <- t(residuals(model))
@@ -406,17 +351,21 @@ for (pcnum in seq(1:20)){
     colnames(Res) <- colnames(Resnoid)
     rownames(Res) <- resgenes
     # save the residuals
-    write.table(Res, paste0(outFolder,"residuals/",cluster,".",treat,".PC1-",pcnum,".residuals_",method,"_PCregress2step.txt"), sep="\t", row.names=TRUE, quote=FALSE)
+    write.table(Res, paste0(outFolder,cluster,".",treat,".PC1-",pcnum,".residuals_",method,"_PCregress2step.txt"), sep="\t", row.names=TRUE, quote=FALSE)
 
     #add bed file info
     Res$ensgene <- resgenes
     all_counts_bed <- merge(geneIDs[,c("chr","strand_start","strand_end","ensgene")],Res,by="ensgene")
     all_counts_bed <- all_counts_bed %>% relocate(ensgene,.after =strand_end)  # have to use ensgene as there was multi gene symbols
-    all_counts_bed <- transform(all_counts_bed, chr=paste0("chr",chr))
-    fwrite(all_counts_bed, sep='\t', quote=F, row.names=F, col.names=T, file=paste0(outFolder,"residuals/phenotypes_fastqtl.",cluster,".",treat,".PC1-",pcnum,".residuals_",method,"_PCregress2step.bed"))
+    #all_counts_bed <- transform(all_counts_bed, chr=paste0("chr",chr))
+    names(all_counts_bed)[c(2:4)] <- c("start","end","gene_id")
+    #all_counts_bed <- transform(all_counts_bed, chr=paste0("chr",chr))
+    fwrite(all_counts_bed, sep='\t', quote=F, row.names=F, col.names=T, file=paste0(outFolder,"phenotypes.",cluster,".",treat,".PC1-",pcnum,".residuals_",method,"_PCregress2step.bed"))
   }
 }
 })
+q
+()
 
 #testing the results
 #Sample IDs are specified in the header line. This line needs to start with a hash key (i.e. #).
@@ -429,7 +378,7 @@ method="voom"
 treat="CTRL"
 for cluster in C0 C1 C10 C11 C2 C3 C4 C5 C6 C7 C8 C9;do
 for pcnum in $(seq 1 20); do
-i=`ls -1 /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/fastQTL/residuals/phenotypes_fastqtl.$cluster.$treat.PC1-$pcnum.residuals_${method}_PCregress2step.bed | grep -v 'sort'`
+i=`ls -1 /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/phenotypes.$cluster.$treat.PC1-$pcnum.residuals_${method}_PCregress2step.bed | grep -v 'sort'`
   echo "running " $i
   #less $i | awk 'NR == 1{print "#"$0;next}; NR > 1 {print $0 | "sortBed -i"}' > ${i%.*}.sort.bed
   less $i | awk 'NR == 1{print "#"$0;next}; NR > 1 {print $0 | "sort -k1,1 -k2,2n "}' > ${i%.*}.sort.bed
