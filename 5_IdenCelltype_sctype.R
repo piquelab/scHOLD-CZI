@@ -1,3 +1,4 @@
+R
 library(tidyverse)
 library(data.table)
 library(future)
@@ -7,26 +8,28 @@ library(plyr)
 
 #######alt cell typing 
 args <- commandArgs(trailingOnly = TRUE)
-#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/",0.3,"ALL","fastdemux") #for testing
+#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/",0.2,"ALL","fastdemux",13) #for testing
 args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",0.2,"ALL","demux",13) 
 
 base <- args[1]
 resset <- as.numeric(args[2])
 project <- args[3]
 method <- args[4]
-dimset=args[5]
+dim=args[5]
 cat("resolution=",resset,"\nproject=",project,"\n","method=",method,"\n")
 
-outdir=paste0(base,"5b_IdenCelltype_",method,"/")
-outdir=paste0(outdir,"indwavecellcountfilt/")
+#outdir=paste0(base,"5b_IdenCelltype_",method,"/")
+#outdir=paste0(outdir,"indwavecellcountfilt/")
+outdir=paste0(base,"5b_IdenCelltype_",method,"/nodex/")
 if (!file.exists(outdir)) dir.create(outdir, showWarnings=F)
 
 # set new output dir for filtered out unmatched figures
 figuredir=paste0(outdir,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 
-harmonyfolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/")
-harmonyfolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/indwavecellcountfilt/")
+#harmonyfolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/")
+#harmonyfolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/indwavecellcountfilt/")
+harmonyfolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/nodex/")
 
 source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
 # load cell type annotation function
@@ -37,6 +40,7 @@ tissue = "Immune system" # e.g. Immune system,Pancreas,Liver,Eye,Kidney,Brain,Lu
 
 # prepare gene sets
 gs_list = gene_sets_prepare(db_, tissue)
+rm(tissue,db_)
 
 #preharmony
 opfn_i <- file.info(dir(paste0(base,"2.1_mergeCellRangerAnd",method,"/"), full.names=T, pattern=paste0(project,".seuratObj-preharmony-post-clustering-res",resset)))
@@ -70,9 +74,9 @@ write_rds(sc, opfn)
 #the following is the old file naming convention - used to make res 0.3 dim 11 for CZI
 #opfn_i <- file.info(dir(paste0(base,"2.1_mergeCellRangerAnd",method,"/"), full.names=T, pattern=paste0(project,".seuratObj-post-clustering-res",resset)))
 #opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
-for (dimset in c(dimset, 50)){
+for (dimset in c(dim, 50)){
 for (resset in c(0.1, 0.15, 0.2, 0.3, 0.4)){
-  if(!isTRUE(file.size(paste0(outdir,project,".seuratObj-.harmony-sctype-",resset,".",dimset,".rds")) > 0)){
+  if(!isTRUE(file.size(paste0(outdir,project,".perc_scores.harmony-sctype-",resset,".",dimset,".rds")) > 0)){
   cat("running ",dimset, resset,"\n")
 opfn <- paste0(harmonyfolder,project,".seuratObj-post-clustering-res",resset,".",dimset,".rds")
 sc <- read_rds(opfn)
@@ -117,11 +121,12 @@ rm(sc,cL_resutls,es.max,cl_type,cL_resutls_perc,p,sctype_scores)
 gc(reset=T)
 }
 }
+}
 
 #opfn <- paste0(outdir,project,".perc_scores.harmony-sctype-",resset,".",dimset,".rds")
 #cL_resutls_perc <- read_rds(opfn)
 cat("starting perc assignment \n")
-
+for (dimset in c(dim, 50)){
 l_perc <- ldply(lapply(c(0.1, 0.15, 0.2, 0.3, 0.4),function(resset){
   #resset=0.2
     cat("running ", resset,dimset,"\n")
@@ -175,23 +180,26 @@ return(df)
 
 opfn <- paste0(outdir,project,".prop_df.harmony-sctype-",dimset,".txt")
 fwrite(l_perc, sep='\t', quote=F, row.names=F, col.names=T, file=opfn)
-
+}
 
 #example tables from ALOFT
 #dim 50
-   res nclusters  sum_prop       rangeL     rangeH
-1  0.1        22 0.5013393 5.500565e-07 0.14194098
-2 0.15        23 0.4998603 5.500565e-07 0.14209005
-3  0.2        25 0.5126860 5.500565e-07 0.08921972
-4  0.3        27 0.5077742 5.500565e-07 0.08981103
-5  0.4        32 0.5090825 5.500565e-07 0.08868781
+  dim  res nclusters  sum_prop       rangeL    rangeH
+1  50  0.1        14 0.5521521 1.781096e-06 0.2484971
+2  50 0.15        14 0.5561163 1.781096e-06 0.2452783
+3  50  0.2        19 0.5320745 1.781096e-06 0.1503464
+4  50  0.3        21 0.5334698 1.781096e-06 0.1508040
+5  50  0.4        24 0.5168780 1.781096e-06 0.1323207
+
 #dim 13
-   res nclusters  sum_prop       rangeL     rangeH
-1  0.1         7 0.4482468 0.0019898295 0.15444652
-2 0.15         8 0.4760801 0.0020489605 0.15510329
-3  0.2         8 0.4776265 0.0019670021 0.15002296
-4  0.3        10 0.4835292 0.0005101774 0.14728478
-5  0.4        13 0.4713532 0.0005081147 0.09657851
+     dim   res nclusters  sum_prop       rangeL    rangeH
+   <int> <num>     <int>     <num>        <num>     <num>
+1:    13  0.10         5 0.5233714 0.0014191774 0.3440816
+2:    13  0.15         7 0.5973823 0.0003512322 0.3418711
+3:    13  0.20         8 0.5278528 0.0014206023 0.1731386
+4:    13  0.30        10 0.5294971 0.0002970868 0.1864628
+5:    13  0.40        12 0.5312340 0.0007544723 0.1296252
+
 
 #Update for the picking dimension/resolution work summary of steps:
 #For every major celltype, pick the top major celltype by:
