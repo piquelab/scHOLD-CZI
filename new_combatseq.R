@@ -18,17 +18,21 @@ library(cowplot)
 library(sva)
 library(ggpubr)
 future::plan(strategy = 'multicore', workers = 10)
-options(future.globals.maxSize = 30 * 1024 ^ 3)
+options(future.globals.maxSize = 15 * 1024 ^ 3)
 
 args <- commandArgs(trailingOnly = TRUE)
-args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",11,0.2) #for testing
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",13,0.15) #for testing
+#old args
+#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",11,0.2) #for testing
+
 base <- args[1]
 cov_file=fread(args[2]) #this is the psych cov file
 project=args[3]
 method=args[4]
 dimset=args[5]
 resset=args[6]
-outFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/")
+outFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/")
+#outFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 # set new output dir for filtered out unmatched figures
 figuredir=paste0(outFolder,"figures/")
@@ -121,6 +125,7 @@ png(figfn, width=1000, height=1000, res=120)
 print(p1)
 dev.off()
 
+options(future.globals.maxSize = 60 * 1024 ^ 3)
 ah <- AnnotationHub()
 if(length(ah["AH98047"]) == 0) {
   edb <- ah[["AH75011"]]
@@ -136,7 +141,8 @@ geneIDs.sex <- subset(geneIDs, chr=="Y" | chr=="X")
 geneIDs.male <- subset(geneIDs, chr=="Y" )
 geneIDs.female <- subset(geneIDs, chr=="X")
 
-outdir=paste0(base,"5b_IdenCelltype_",method,"/")
+outdir=paste0(base,"5b_IdenCelltype_",method,"/nodex/")
+#outdir=paste0(base,"5b_IdenCelltype_",method,"/")
 opfn <- paste0(outdir,project,".seuratObj-.harmony-sctype-",resset,".",dimset,".rds")
 sc <- read_rds(opfn)
 #from https://www.biostars.org/p/9482789/
@@ -147,6 +153,17 @@ coldata_ex <- merge(as.data.frame(sc@meta.data),eigenvec2,by="Sample_ID") #first
 RcolData <- merge(colOrd, coldata_ex, by="NEW_BARCODE",all.x=T)
 RcolData <- RcolData[match(rownames(sc@meta.data), RcolData$NEW_BARCODE), ]
 sc@meta.data <-cbind(sc@meta.data,RcolData[,which(!colnames(RcolData) %in% colnames(sc@meta.data))])
+fwrite(sc@meta.data, file=paste0(outFolder,"scmetadata_allind.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
+sc_genesdf <- ldply(lapply(unique(sc@meta.data$letter_clusters),function(c){
+    cat("running",c,"\n")
+    sc_c <- subset(sc, subset=letter_clusters==c)
+    sc_genes <- data.frame(cluster=c,genes=rownames(sc[["RNA"]]))
+    rm(sc_c)
+    gc()
+    return(sc_genes)
+}),data.frame)
+    fwrite(sc_genesdf, file=paste0(outFolder,"scmetadata_allgenes.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
 
 #subset for 20cell count filt
 counts <- plyr::count(sc@meta.data,c("Library","letter_clusters","Sample_ID"))
@@ -158,19 +175,31 @@ sc <- subset(sc, subset=btic_cellcounts>=20)
 after=dim(sc@meta.data)[1]
 cat("removed ", before-after, "combos","\n") #3971
 table(sc@meta.data$letter_clusters,sc@meta.data$treats)
-    RNA-CTRL RNA-LPS RNA-LPS-DEX
-  C0    77284   83358       19300
-  C1    57994   58139       13412
-  C2    44634   49984       14593
-  C3    34712   40317       10741
-  C4    37170   28522       11316
-  C5    20908   23289        5282
-  C6      603     830         204
+   RNA-CTRL RNA-LPS
+  C0   134245  139961
+  C1    49547   55992
+  C2    31138   35991
+  C3    37146   28506
+  C4    20917   23281
+  C5      684     811
+  C6       72       0
 
 sc[["sex_male"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc) %in% geneIDs.male$symbol])
 sc[["sex_female"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc) %in% geneIDs.female$symbol])
 
-opfn <- paste0(outFolder,project,".",resset,".",dimset,".wavefilt.bticfilt.seurat.RDS")
+fwrite(sc@meta.data, file=paste0(outFolder,"scmetadata_bticfilt.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
+sc_genesdf <- ldply(lapply(unique(sc@meta.data$letter_clusters),function(c){
+    cat("running",c,"\n")
+    sc_c <- subset(sc, subset=letter_clusters==c)
+    sc_genes <- data.frame(cluster=c,genes=rownames(sc[["RNA"]]))
+    rm(sc_c)
+    gc()
+    return(sc_genes)
+}),data.frame)
+    fwrite(sc_genesdf, file=paste0(outFolder,"scmetadata_bticfiltgenes.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
+opfn <- paste0(outFolder,project,".",resset,".",dimset,".bticfilt.seurat.RDS")
 saveRDS(sc, file=opfn)
 
 #sc <- read_rds(opfn)
@@ -204,7 +233,9 @@ print(fig)
 dev.off()
 
 cellcount <- as.data.frame(table(sc@meta.data$letter_clusters, sc@meta.data$orig.ident))
-lowcell <- subset(cellcount, Freq<3000) #normally 3000 which would remove C6 too
+fwrite(cellcount, file=paste0(outFolder,"cellcount_cluster.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
+lowcell <- subset(cellcount, Freq<1000) #was 3k, going to see if 1k works
 if(dim(lowcell)[1]==0){cat( "no low cell counts")}else{sc <-subset(x = sc, subset = letter_clusters %in% unique(lowcell$Var1), invert = TRUE)}
 
 sce <- as.SingleCellExperiment(sc)
@@ -272,15 +303,34 @@ metadata_ls <- lapply(counts_ls, function(i){
 all(names(counts_ls) == names(metadata_ls))
 
 #opfn <- paste0(outFolder,project,".DESeq_countlists.RData")
-opfn <- paste0(base,method,"_pseudobulk_ctrl/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt_proteincoding.RData")
+opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt_proteincoding.RData")
 save(counts_ls,metadata_ls, file=opfn)
 
 counts_ls <- lapply(unique(summed$letter_clusters), function(i){
+#counts_ls <- lapply(unique(summed$letter_clusters)[!unique(summed$letter_clusters) %in% "C5"], function(i){
     cat("running ",i,"\n")
     #i <- unique(summed$letter_clusters)[1]
     cell_idx <- which(tstrsplit(colnames(summed), "_")[[1]] == i)
     keep <- which(colnames(raw) %in% colnames(summed[, cell_idx]))
     data <- raw[, keep]
+
+    celltype_combo <- data.frame(cluster.withdex=c("C0","C2","C3","C4","C5","C6","C1"),celltype.withdex=c("CD4_T","CD8_T","NK","Monocyte","B","DC","CD4_T"),
+        cluster.withoutdex=c("C0","C1","C2","C3","C4","C5","C6"),celltype.withoutdex=c("CD4_T","CD8_T","NK","Monocyte","B","DC","Monocyte"))
+    celltype_comboc <- subset(celltype_combo,cluster.withoutdex==i )
+    combatrun="SES_PCs_sex_age_and_treats_adjusted"
+    baseoutFolder_dex=paste0(base,method,"_pseudobulk_ctrl/adjusted/",0.2,".",11,"/cell20filt/")
+    opfn <- paste0(baseoutFolder_dex,project,".",0.2,".",11,".ComBat_seq.",celltype_comboc$cluster.withdex,".",combatrun,".RData")
+    load(opfn)
+    sc_genes_oldmatch <- data[rownames(data) %in% rownames(adjusted_counts), ]
+    all(rownames(sc_genes_oldmatch) == rownames(adjusted_counts))
+    filtered_data <- sc_genes_oldmatch > 0 
+    keep <- rowSums(filtered_data,na.rm=T) >= (ncol(sc_genes_oldmatch) / 4) #filter to keep genes expressed in 25% of samples
+    sc_genes_oldmatch_25 <- unlist(sc_genes_oldmatch[keep, ]) #lose AL596223.1
+    #rownames(sc_genes_oldmatch)[!rownames(sc_genes_oldmatch) %in% rownames(sc_genes_oldmatch_25)]
+    sc_genes_oldmatch_25 <- sc_genes_oldmatch_25[!rownames(sc_genes_oldmatch_25) %in% geneIDs.sex$symbol, ]
+    summed_filt_oldmatch <- summed[rownames(summed) %in% rownames(sc_genes_oldmatch_25), cell_idx]
+    fwrite(data.frame(cluster=i,genes=rownames(summed_filt_oldmatch)), file=paste0(outFolder,"pseudobulk_genes_oldmatch",i,".txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
     filtered_data <- data > 0 
     #filtered_data[filtered_data < 0] <- NA
     if(is.matrix(filtered_data)){
@@ -288,12 +338,17 @@ counts_ls <- lapply(unique(summed$letter_clusters), function(i){
     data <- unlist(data[keep, ])
     data <- data[!rownames(data) %in% geneIDs.sex$symbol, ]
     summed_filt <- summed[rownames(summed) %in% rownames(data), cell_idx]
+    diffgenes <- rownames(summed_filt)[!rownames(summed_filt) %in% rownames(sc_genes_oldmatch_25)] #1161
+    fwrite(data.frame(cluster=i,genes=rownames(summed_filt)), file=paste0(outFolder,"pseudobulk_genes",i,".txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+    fwrite(data.frame(cluster=i,genes=diffgenes), file=paste0(outFolder,"pseudobulk_genes_diffto_olddex",i,".txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
     return(summed_filt)
+#    return(summed_filt_oldmatch)
     } else {
     NULL
     }
     })
 names(counts_ls) <-unique(summed$letter_clusters)
+#names(counts_ls) <-unique(summed$letter_clusters)[!unique(summed$letter_clusters) %in% "C5"]
 counts_ls[sapply(counts_ls, is.null)] <- NULL
 
 # Number of cells per sample and cluster
@@ -321,9 +376,10 @@ metadata_ls <- lapply(counts_ls, function(i){
 all(names(counts_ls) == names(metadata_ls))
 
 #opfn <- paste0(outFolder,project,".DESeq_countlists.RData")
-opfn <- paste0(base,method,"_pseudobulk_ctrl/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
+opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
+#opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt_oldmatch.RData")
+
 save(counts_ls,metadata_ls, file=opfn)
-load(opfn)
 
 #this checks what combos are affected by the filter
 lcf <- ldply(lapply(names(counts_ls), function(cluster){
@@ -341,10 +397,28 @@ table(lcf$letter_clusters)
 #opfn <- paste0(base,method,"_pseudobulk_ctrl/",project,".",resset,".",dimset,".DESeq_countlists.RData")
 #save(counts_ls,metadata_ls, file=opfn)
 
+################################################################################################3
+##################################################################################################
+opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
+load(opfn)
+
 #only using SES var, also accounting for PC1 and PC2
 combatrun="SES_PCs_sex_age_and_treats_adjusted"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/")
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/")
 if (!file.exists(baseoutFolder)) dir.create(baseoutFolder, showWarnings=F)
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/test/")
+if (!file.exists(baseoutFolder)) dir.create(baseoutFolder, showWarnings=F)
+
+
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+    qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
+    H <- 3 * IQR(x, na.rm = na.rm)
+    y <- x
+    y[x < (qnt[1] - H)] <- NA
+    y[x > (qnt[2] + H)] <- NA
+    y
+}
+
 
 mclapply(names(counts_ls),function(cluster){
     #cluster=names(counts_ls)[1]
@@ -352,11 +426,25 @@ mclapply(names(counts_ls),function(cluster){
     cluster_counts_sce <- counts_ls[[cluster]]
     cluster_metadata_sce <- metadata_ls[[cluster]]
     cluster_counts <- assay(cluster_counts_sce, "counts")
-    cluster_metadata <- data.frame(cluster_metadata_sce)
-    cluster_metadata_var <- cluster_metadata[,c("Sample_ID","BATCH","PC1","PC2","treats","sex_alph","age","SES")]
+    cluster_metadata_bf <- data.frame(cluster_metadata_sce)
+    #highcell <- cluster_metadata_bf[cluster_metadata_bf$cell_count>=20,c("comb","letter_clusters","cell_count")]
+    #cluster_metadata <- cluster_metadata_bf[rownames(cluster_metadata_bf) %in% rownames(highcell),]
+    cluster_metadata_var <- cluster_metadata_bf[,c("Sample_ID","BATCH","PC1","PC2","treats","sex_alph","age","SES")]
     cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
     cluster_counts_t <- cluster_counts[,which(colnames(cluster_counts) %in% rownames(cluster_metadata_var))]
     all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
+
+#checkrm <- remove_outliers(cluster_counts_t)
+##checkrm2 <- rm.outlier(cluster_counts_t, fill = FALSE, median = FALSE, opposite = FALSE)
+#check <- outlier(cluster_counts_t) #"HBB"    "MALAT1"
+#f <- apply(check, 1, any)
+#outlier_genes <- rownames(cluster_counts_t)[f]
+#    cluster_counts_t <- cluster_counts_t[!rownames(cluster_counts_t) %in% outlier_genes,]
+
+#            genesdexvnodex <- fread(paste0("/rs/rs_grp_schold/CZI/RNA/analysis/fastdemux_pseudobulk_ctrl/nodex/SES_PCs_sex_age_and_treats_generem/genes_dexvsnodex.",var,".txt"))
+#            bothgenesdexvnodex <- subset(genesdexvnodex, gene_present=="both")
+#            cluster_counts_t <- cluster_counts_t[rownames(cluster_counts_t) %in% bothgenesdexvnodex$identifier, ]
+
 
     adjusted_counts <- ComBat_seq(cluster_counts_t, batch=cluster_metadata_var$BATCH, group=NULL, covar_mod=cluster_metadata_var[,c("treats","sex_alph","age","PC1","PC2","SES")])
     opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
@@ -369,7 +457,7 @@ genestoremove <- ldply(lapply(names(counts_ls), function(cluster){
 max=unique(rownames(which(adjusted_counts >= .Machine$integer.max, arr.ind = TRUE)))
 return(data.frame(genes=max))
 }),data.frame)
-genestoremove #237 genes
+genestoremove #35
 
 combatrun="SES_PCs_sex_age_and_treats_adjusted_generem"
 mclapply(names(counts_ls),function(cluster){
@@ -379,6 +467,8 @@ mclapply(names(counts_ls),function(cluster){
     cluster_metadata_sce <- metadata_ls[[cluster]]
     cluster_counts <- assay(cluster_counts_sce, "counts")
     cluster_metadata <- data.frame(cluster_metadata_sce)
+    #highcell <- cluster_metadata_bf[cluster_metadata_bf$cell_count>=20,c("comb","letter_clusters","cell_count")] #duplicate filter
+    #cluster_metadata <- cluster_metadata_bf[rownames(cluster_metadata_bf) %in% rownames(highcell),]#duplicate filter
     cluster_metadata_var <- cluster_metadata[,c("Sample_ID","BATCH","PC1","PC2","treats","sex_alph","age","SES")]
     cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
     cluster_counts_t <- cluster_counts[,which(colnames(cluster_counts) %in% rownames(cluster_metadata_var))]
@@ -390,22 +480,50 @@ mclapply(names(counts_ls),function(cluster){
     save(adjusted_counts, file=opfn)
 })
 
-combatrun="SES_PCs_sex_age_and_treats_adjusted_generem"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/")
-allPFAS <- psychvarstorun[c(45:65)]
-combPFAS <- allPFAS[seq(1,21,3)]
-PFASvars <- c(allPFAS,"sumPFAS","log_sumPFAS")
-run="SES_PCs_sex_age_and_treats_generem"
-outFolder=paste0(baseoutFolder,run,"/")
-runPFAS=FALSE
+#############################################################
+############################################################
+opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
+#opfn <- paste0(base,method,"_pseudobulk_ctrl/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
 
-run=paste0(run,"_proteincoding")
+load(opfn)
+
+combatrun="SES_PCs_sex_age_and_treats_adjusted_generem"
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/")
+run="SES_PCs_sex_age_and_treats_generem"
 outFolder=paste0(baseoutFolder,run,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 if (!file.exists(paste0(outFolder,"stats/"))) dir.create(paste0(outFolder,"stats/"), showWarnings=F)
-if (!file.exists(paste0(outFolder,"sigDEGs/"))) dir.create(paste0(outFolder,"sigDEGs/"), showWarnings=F)
 if (!file.exists(paste0(outFolder,"deseqres/"))) dir.create(paste0(outFolder,"deseqres/"), showWarnings=F)
 if (!file.exists(paste0(outFolder,"figures/"))) dir.create(paste0(outFolder,"figures/"), showWarnings=F)
+
+#to test
+outFolder=paste0(baseoutFolder,run,"/test/")
+if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
+if (!file.exists(paste0(outFolder,"stats/"))) dir.create(paste0(outFolder,"stats/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"deseqres/"))) dir.create(paste0(outFolder,"deseqres/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"figures/"))) dir.create(paste0(outFolder,"figures/"), showWarnings=F)
+
+runPFAS=TRUE
+zingeRrun=FALSE
+iselcov=FALSE
+if(iselcov){
+    run=paste0(run,"_iselcov")
+}
+SEScov=FALSE
+if(SEScov){
+    run=paste0(run,"_SEScov")
+}
+WHRcov=FALSE
+if(WHRcov){
+    run=paste0(run,"_WHRcov")
+}
+PSScov=FALSE
+if(PSScov){
+    run=paste0(run,"_PSScov")
+}
+if(zingeRrun){
+    run=paste0(run,"_zingeR")
+}
 
 lapply(names(counts_ls),function(cluster){
     #cluster=names(counts_ls)[1]
@@ -417,12 +535,13 @@ lapply(names(counts_ls),function(cluster){
     cluster_metadata <- data.frame(cluster_metadata_sce)
     cluster_metadata <- transform(cluster_metadata, treats=as.factor(treats),rowid=rownames(cluster_metadata))
     cluster_metadata <- within(cluster_metadata, treats <- relevel(treats, ref = "RNA-CTRL"))
-    cluster_metadataL <- left_join(cluster_metadata,unique(eigenvec2[,c("Sample_ID","Lead")]),by="Sample_ID")
-    rownames(cluster_metadataL) <- cluster_metadataL$rowid
-    cluster_metadata <- cluster_metadataL
+    #cluster_metadataL <- left_join(cluster_metadata,unique(eigenvec2[,c("Sample_ID","Lead","WHR")]),by="Sample_ID")
+    #rownames(cluster_metadataL) <- cluster_metadataL$rowid
+    #cluster_metadata <- cluster_metadataL
 
-	opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
+    opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
     load(opfn)
+
     if(runPFAS){
         cluster_metadata_pfas <- cluster_metadata %>% 
         rowwise() %>% 
@@ -432,29 +551,25 @@ lapply(names(counts_ls),function(cluster){
     cluster_metadata <- as.data.frame(cluster_metadata_pfas)
     cluster_metadata <- transform(cluster_metadata, log_sumPFAS=log2(sumPFAS+1))
     rownames(cluster_metadata) <- cluster_metadata$rowid
-    adjusted_countsP <- adjusted_counts[rownames(adjusted_counts) %in% genes$hgnc_symbol, ]
-    keep <- rowSums(adjusted_countsP,na.rm=T) >= (ncol(adjusted_countsP) / 2) #filter to keep genes expressed in 25% of samples
-    adjusted_counts <- unlist(adjusted_countsP[keep, ])
+    #adjusted_countsP <- adjusted_counts[rownames(adjusted_counts) %in% genes$hgnc_symbol, ]
+    #keep <- rowSums(adjusted_countsP,na.rm=T) >= (ncol(adjusted_countsP) / 2) #filter to keep genes expressed in 50% of samples
+    #adjusted_counts <- unlist(adjusted_countsP[keep, ])
     }
 
-    #d <- data.frame(number_ind=length(unique(cluster_metadata[,c("Sample_ID")])))
-    #fwrite(d, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sampleid_all/",project,".",cluster,".sampleid_all.",run,".txt"))
-
-    for(i in unique(cluster_metadata_sce$treats)){
-            #lapply(list.df, subset, B!=2)
+    for(i in treatmentsfirst){
             #i <- "RNA-CTRL"
         cluster_metadata_t <- subset(cluster_metadata, treats==i)
         cluster_metadata_t <- transform(cluster_metadata_t, sex_alph=as.factor(sex_alph),SNI_NumPeople_r=as.numeric(SNI_NumPeople_r))
         cluster_metadata_t <- within(cluster_metadata_t, sex_alph <- relevel(sex_alph, ref = "Male"))
 
-        lapply("Lead",function(var){
-            #c(psychvarstorun,"factor_HS_CRP",updated_vars,FCDEM_11_8) variables_df$variable
+        lapply(c("PSS_all_mean","ISEL_Mean"),function(var){
             #var="pr_comp"
             if(!isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){
-                cat("running deseq ",var,i," \n")
+                cat("running deseq ",cluster, var,i," \n")
         #if(var=="Lead"){
         #    adjusted_counts <- adjusted_counts[rownames(adjusted_counts) %in% genes$hgnc_symbol, ]
         #}
+
         design <-  paste0("~ PC1 + PC2 + sex_alph + age + ",var)
         if(var=="factor_HS_CRP"){
         cluster_metadata_t <- subset(cluster_metadata_t, HS_CRP<10) #advised to remove as likely an infection
@@ -466,31 +581,66 @@ lapply(names(counts_ls),function(cluster){
         design <-  paste0("~ PC1 + PC2 + sex_alph + age + SES + ",var)
         cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","age","SES",var)]
         }
+        if(iselcov){
+        design <-  paste0("~ PC1 + PC2 + sex_alph + age + ISEL_Mean + ",var)
+        cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","age","ISEL_Mean",var)]
+        }
+        if(WHRcov){
+        design <-  paste0("~ PC1 + PC2 + sex_alph + age + WHR + ",var)
+        cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","age","WHR",var)]
+        }
+        if(PSScov){
+        design <-  paste0("~ PC1 + PC2 + sex_alph + age + PSS_all_mean + ",var)
+        cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","age","PSS_all_mean",var)]
+        }
         if(var=="CVDRISK"){
         design <-  paste0("~ PC1 + PC2 + ",var)
+        cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2",var)]
         if(SEScov){
         design <-  paste0("~ PC1 + PC2 + SES + ",var)
+        cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","SES",var)]
         }
+        if(WHRcov){
+        design <-  paste0("~ PC1 + PC2 + WHR + ",var)
+        cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","WHR",var)]
         }
         if(iselcov){
-        design <-  paste0("~ PC1 + PC2 + sex_alph + age + isel + ",var)
-        cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","age","isel",var)]
+        design <-  paste0("~ PC1 + PC2 + ISEL_Mean + ",var)
+        cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","ISEL_Mean",var)]
         }
+        } #end of cvdrisk
         if(var=="age"){
         design <-  paste0("~ PC1 + PC2 + sex_alph + ",var)
         cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph",var)]
         if(SEScov){
+        design <-  paste0("~ PC1 + PC2 + sex_alph + SES + ",var)
         cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","SES",var)]
         }
+        if(WHRcov){
+        design <-  paste0("~ PC1 + PC2 + sex_alph + WHR + ",var)
+        cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","WHR",var)]
         }
+        if(iselcov){
+        design <-  paste0("~ PC1 + PC2 + sex_alph + ISEL_Mean + ",var)
+        cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","ISEL_Mean",var)]
+        }
+        if(PSScov){
+        design <-  paste0("~ PC1 + PC2 + sex_alph + PSS_all_mean + ",var)
+        cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","PSS_all_mean",var)]
+        }
+        } # end of age
         cluster_metadata_var <- cluster_metadata_var[which(rownames(cluster_metadata_var) %in% colnames(adjusted_counts)),]
         cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
         cluster_counts_t <- adjusted_counts[,which(colnames(adjusted_counts) %in% rownames(cluster_metadata_var))]
         all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
 
-        dds <- DESeqDataSetFromMatrix(cluster_counts_t, 
+        dds <- try(DESeqDataSetFromMatrix(cluster_counts_t, 
                                       colData = cluster_metadata_var, 
                                       design = as.formula(design))
+        )
+        if(inherits(dds, "try-error")){
+          print("An error occurred")
+        } else {
         if(zingeRrun){
                     designb = model.matrix( as.formula(design) , cluster_metadata_var)
         weights <- zeroWeightsLS(counts=cluster_counts_t, design=designb, maxit=200, normalization="DESeq2_poscounts", colData=cluster_metadata_var, designFormula=as.formula(design))
@@ -501,14 +651,13 @@ lapply(names(counts_ls),function(cluster){
         } else {
         dds <- DESeq(dds,parallel=TRUE)
         }
+
         opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",i,"-",var,cluster,".",run,".RData")
         save(dds, file=opfn)
 
-        #fwrite(data.frame(Sample_ID=cluster_metadata_var[,c("Sample_ID")]), sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sampleid/",project,".",resset,".",dimset,".",cluster,".sampleid_",var,"-",i,".",run,".txt"))
-
         res <- results(dds)
-        sub.table <- data.frame(res@rownames, res$'padj', res$'pvalue', res$'log2FoldChange', res$'lfcSE',stringsAsFactors=FALSE)
-        names(sub.table) <- c('identifier', 'padj', 'pvalue', 'logFC','SE')
+        sub.table <- data.frame(res@rownames, res$'baseMean', res$'padj', res$'pvalue', res$'log2FoldChange', res$'lfcSE',stringsAsFactors=FALSE)
+        names(sub.table) <- c('identifier','baseMean','padj','pvalue', 'logFC','SE')
         sub.table <- sub.table[!is.na(sub.table$padj), ]
         cat("BH diff. expressed ids.  ", sapply(c(0.01,0.05,0.1,0.2),function (tr) c(paste(",",tr*100,"%FDR->"), sum(na.omit(res$padj)<tr))),"\n")
         sub.table$var=var
@@ -517,7 +666,6 @@ lapply(names(counts_ls),function(cluster){
         fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".",cluster,".deseqres_",var,"-",i,".",run,".txt"))
         sigDEGs <- subset(sub.table,padj<fdr)
         sigDEGs <- sigDEGs[order(sigDEGs$padj), ]
-        fwrite(sigDEGs, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,".sigDEGs_",var,"-",i,".",run,".txt"))
         table <- data.frame(symb=var, variable= var, cluster=cluster)
         table$number_samples <- paste(nrow(cluster_metadata_var))
         table$number_individuals <- paste(length(unique(cluster_metadata_var$Sample_ID)))
@@ -526,15 +674,18 @@ lapply(names(counts_ls),function(cluster){
         table$DEGs_FDR <- paste(nrow(sigDEGs))
         table$DEGs_FDR_10 <- paste(nrow(subset(sub.table,padj<0.1)))
         fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
+        rm(table,sigDEGs,sub.table,res,dds,cluster_metadata_var)
+        gc()
+            }
             }
         })
     }
 })
 
 
-for (var in c(variables_df$variable)){
-    #for (var in "Lead"){
-    for (i in c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX")){
+for (var in c(allvars)){
+    #for (var in c("PSS_all_mean","ISEL_Mean")){
+    for (i in c(treatmentsfirst)){
     if(!isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){
         cat("running ",var," ",i,"\n")
     sub.table <- ldply(lapply(names(counts_ls), function(cluster){
@@ -543,12 +694,6 @@ for (var in c(variables_df$variable)){
         }
         }),data.frame)
     fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
-    sub.table <- ldply(lapply(names(counts_ls), function(cluster){
-        if(file.exists(paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,".sigDEGs_",var,"-",i,".",run,".txt"))){
-        sub.table <- fread(paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,".sigDEGs_",var,"-",i,".",run,".txt"),header=T)
-        }    
-    }),data.frame)
-    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".sigDEGs_",var,"-",i,".",run,".txt"))
     sub.table <- ldply(lapply(names(counts_ls), function(cluster){
         if(file.exists(paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt"))){
         sub.table <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt"),header=T)
@@ -565,10 +710,11 @@ library(rlist)
 library(officer)
 #[!psychvarstorun %in% puberty]
  my.max <- function(x) ifelse( !all(is.na(x)), max(x, na.rm=T), NA)
+zoom="allvars"
 
-for (i in c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX")){
-subvars <- ldply(lapply(c(variables_df$variable), function(var){
-#subvars <- ldply(lapply(PFAS, function(var){
+for (i in c(treatmentsfirst)){
+#subvars <- ldply(lapply(c(variables_df$variable), function(var){
+subvars <- ldply(lapply(c(allvars), function(var){
     cat("running",i,var,"\n")
     if(isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){
     stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
@@ -576,6 +722,99 @@ subvars <- ldply(lapply(c(variables_df$variable), function(var){
         cat("not enough DEGs","\n")
         rm(stats)
         } else{
+        deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"),select=c(1,8))
+        df <- ddply(deseqres, "cluster", plyr::summarize, ngenes=length(unique(identifier)))
+        newls <- lapply(names(counts_ls),function(c){
+            stats_c <- subset(stats,cluster==c)
+            dc <- subset(df, cluster==c)
+            d <- data.frame(numind=stats_c$number_individuals, ngenes=dc$ngenes,sigDEGs=stats_c$DEGs_FDR_10)
+            colnames(d) <- paste(c,colnames(d),sep=".")
+            return(d)
+            })
+            newls <- newls[sapply(newls, nrow)>0]
+            newtable <- data.frame(variable=var, description=variables_df[variables_df$variable==var,]$description,list.cbind(newls))
+            newtable$description <- ifelse(is.na(newtable$description) | newtable$description=="", var,newtable$description)
+            return(newtable)
+        }
+    }
+}),data.frame)
+subvars <- unique(subvars)
+
+if( ncol(subvars) > 0){
+dft <- subvars %>% flextable() %>% span_header()
+dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
+flextable::save_as_image(
+  dft,
+    #path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,"PFAS.png"))
+  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",zoom,".",run,".png"))
+
+degcols <- grep("sigDEGs",colnames(subvars))
+subsubvars <- subvars[,!grepl(paste(c(sapply(strsplit(colnames(subvars[,degcols[ apply(subvars[,degcols],MARGIN=2,FUN=my.max)<50],drop=F]),"[.]"),function(y) y[1]),"NA"),collapse="[.]|"),colnames(subvars))]
+dft <- subsubvars %>% flextable() %>% span_header()
+dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
+
+flextable::save_as_image(
+  dft,
+  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",zoom,".",run,".50degs.png"))
+
+subsubvars_degonly <- subsubvars[,!grepl("numind|ngenes",colnames(subsubvars))]
+dft <- subsubvars_degonly %>% flextable() 
+#dft <- align(dft, i = 1, j = NULL, align = "left", part = "body")
+flextable::save_as_image(
+  dft,
+  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",zoom,".",run,".ndegonly.png"))
+}
+}
+
+zoom="allvars"
+for (i in c(treatmentsfirst)){
+subvars <- ldply(lapply(c(allvars), function(var){
+    cat("running",i,var,"\n")
+    if(isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){
+    stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
+    if(dim(subset(stats, DEGs_FDR_10>50))[1]<1){ #first subset variables that have at least one cluster with 50DEGs
+        cat("not enough DEGs","\n")
+        rm(stats)
+        } else{
+        deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
+        deseqres <- transform(deseqres, regulation=ifelse(logFC>0, "up", "down"))
+        dessig <- subset(deseqres, padj<0.1)
+        return(dessig)
+    }
+    }
+}),data.frame)
+
+# Count the number of genes in each category
+data_summary <- ddply(subvars, c("cluster","var","regulation"),plyr::summarize,
+    nDEG=length(regulation))
+data_summary <- transform(data_summary, nDEG=ifelse(regulation=="up",nDEG,-(nDEG)))
+group_colors <- c("up" = "orange","down" = "purple")
+
+p <- ggplot(data_summary, aes(x = cluster, y = nDEG, fill = regulation)) +
+  geom_col() + #position = "dodge"
+  coord_flip() +
+  geom_hline(yintercept=0)+
+  #facet_wrap(.~var)+
+  scale_fill_manual(values = group_colors) +
+  labs(title = paste0("Up- and Down-Regulated Genes in ",i), x = "Cluster", y = "Number of DEGs", fill = "Regulation") +
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+      png(width = 8, height = 8, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",zoom,".",run,".DEGupvdownbar.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 600)
+print(p)
+dev.off()
+}
+
+
+
+for (i in c(treatmentsfirst)){
+#subvars <- ldply(lapply(c(variables_df$variable), function(var){
+subvars <- ldply(lapply(c(PFASvars), function(var){
+    cat("running",i,var,"\n")
+    if(isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){
+    stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
         deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"),select=c(1,7))
         df <- ddply(deseqres, "cluster", plyr::summarize, ngenes=length(unique(identifier)))
         newls <- lapply(names(counts_ls),function(c){
@@ -586,355 +825,415 @@ subvars <- ldply(lapply(c(variables_df$variable), function(var){
             return(d)
             })
             newls <- newls[sapply(newls, nrow)>0]
-            newtable <- data.frame(variable=var, description=variables_df[variables_df$variable==var,]$description,topvar=ifelse(var %in% variablesL,"Y",""),list.cbind(newls))
+            newtable <- data.frame(variable=var, description=variables_df[variables_df$variable==var,]$description,list.cbind(newls))
+            newtable$description <- ifelse(is.na(newtable$description) | newtable$description=="", var,newtable$description)
             return(newtable)
-        }
     }
 }),data.frame)
-
+subvars <- unique(subvars)
 if( ncol(subvars) > 0){
 dft <- subvars %>% flextable() %>% span_header()
 dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
 flextable::save_as_image(
   dft,
     #path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,"PFAS.png"))
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,".png"))
-
-degcols <- grep("sigDEGs",colnames(subvars))
-subsubvars <- subvars[,!grepl(paste(c(sapply(strsplit(colnames(subvars[,degcols[ apply(subvars[,degcols],MARGIN=2,FUN=my.max)<50],drop=F]),"[.]"),function(y) y[1]),"NA"),collapse="[.]|"),colnames(subvars))]
-dft <- subsubvars %>% flextable() %>% span_header()
-dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
-
-flextable::save_as_image(
-  dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,".50degs.png"))
-
-subsubvars_degonly <- subsubvars[,!grepl("numind|ngenes",colnames(subsubvars))]
-dft <- subsubvars_degonly %>% flextable() 
-#dft <- align(dft, i = 1, j = NULL, align = "left", part = "body")
-flextable::save_as_image(
-  dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,".ndegonly.png"))
+  path = paste0(outFolder,"figures/",i,".",zoom,".",run,".png"))
 }
 }
+
+#############NOT UPDATED , maybe updated ?
+library(Vennerable)
 
 #want to plot isel vs no isel in DESeq model
-sesrun="SES_PCs_isel_sex_age_and_treats_generem"
 run="SES_PCs_sex_age_and_treats_generem"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/")
 outFolder=paste0(baseoutFolder,run,"/")
-sesoutFolder=paste0(baseoutFolder,sesrun,"/")
+sesrun=paste0(run,"_iselcov")
+var="PSS_all_mean"
 threshold=0.10
 
-for (i in c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX")){
+for (i in treatmentsfirst){
+#lapply(c("PSS_all_mean"),function(var){
+    allvardeseq <- ldply(lapply(names(counts_ls),function(cluster) {
+        opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",i,"-",var,cluster,".",run,".RData")
+        load(opfn)
+        res <- results(dds)
+        sub.table <- data.frame(res@rownames, res$'pvalue', res$'log2FoldChange', res$'lfcSE',stringsAsFactors=FALSE)
+        names(sub.table) <- c('identifier', 'pvalue', 'logFC','SE')
+        deseqres <- transform(sub.table, padj=p.adjust(pvalue,method="BH"),var=var,cluster=cluster,treats=i)
+        opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",i,"-",var,cluster,".",sesrun,".RData")
+        load(opfn)
+        res <- results(dds)
+        sub.table <- data.frame(res@rownames, res$'pvalue', res$'log2FoldChange', res$'lfcSE',stringsAsFactors=FALSE)
+        names(sub.table) <- c('identifier', 'pvalue', 'logFC','SE')
+        ses_deseqres <- transform(sub.table, padj=p.adjust(pvalue,method="BH"),var=var,cluster=cluster,treats=i)
+        deseqres <- transform(deseqres, model="noSocialSupportCov")
+        ses_deseqres <- transform(ses_deseqres, model="SocialSupportCov")
+        merged_treat <- merge(deseqres,ses_deseqres,by=c("identifier","cluster","var","treats"))
+        subvars <- transform(merged_treat, noisel_zscore=logFC.x/SE.x, isel_zscore=logFC.y/SE.y, sig=as.factor(ifelse(padj.x<threshold & padj.y<threshold, "4both", ifelse(padj.x<=threshold, "3noisel_sig", ifelse(padj.y<=threshold, "2isel_sig", "1Not_Sig")))))
+        return(subvars)
+        }),data.frame)
+group_colors <- c("1Not_Sig" = "grey","3noisel_sig" = "#E34234", "2isel_sig" = "turquoise4", "4both" = "#7851A9")
+p <- ggplot(allvardeseq, aes(x=isel_zscore, y=noisel_zscore)) +
+  theme_bw()+
+  geom_point(aes(color=sig))+ #aes(color=sig)
+scale_color_manual(values = group_colors) +
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  geom_abline()+
+#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+      png(width = 12, height = 12, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",var,".",run,".iselvsnoisel.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 600)
+print(p)
+dev.off()
+#per cluster
+p <- ggplot(allvardeseq, aes(x=isel_zscore, y=noisel_zscore)) +
+  theme_bw()+
+  facet_wrap(.~cluster,ncol=3)+
+  geom_point(aes(color=sig))+ #aes(color=sig)
+  scale_color_manual(values = group_colors) +
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  geom_abline()+
+#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+      png(width = 12, height = 12, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",var,".",run,".iselvsnoisel_bycluster.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 600)
+print(p)
+dev.off()
+
+noSESressig <- subset(allvardeseq,padj.x<0.1)
+noSESressig <- transform(noSESressig, model=model.x)
+SESressig <- subset(allvardeseq,padj.y<0.1)
+SESressig <- transform(SESressig, model=model.y)
+
+if(dim(noSESressig)[1]>0 & dim(SESressig)[1]>0){
+df <- unique(rbind(noSESressig[,c("identifier","model")],SESressig[,c("identifier","model")]))
+d_list <- split(df$identifier,df$model)
+V_d_list <- Venn(d_list)
+Vennlist <- compute.Venn(V_d_list, doWeights = TRUE)
+#Vennlist@FaceLabels <- transform(Vennlist@FaceLabels, y=ifelse(Signature==100, 70, y))
+Vennlist@FaceLabels <- distinct(Vennlist@FaceLabels,Signature, .keep_all= TRUE)
+gp <- VennThemes(Vennlist)
+png(width =6, height = 6, file=paste0(outFolder,"figures/",project,".",var,"-",i,".noiselvsisel_venn.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 1200)
+par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
+p <- plot(Vennlist, gpList=gp, show = list(FaceText = c("weight"), DarkMatter = TRUE))
+print(p)
+dev.off()
+}
+
+#bar plot version
+subvars_sig <- subset(allvardeseq, !sig=="1Not_Sig")
+count_df <- subvars_sig %>%
+  group_by(cluster, sig) %>%
+  dplyr::summarise(count = n(), .groups = "drop")
+
+group_colors <- c("3noisel_sig" = "#E34234", "2isel_sig" = "turquoise4", "4both" = "#7851A9")
+
+fig0 <- ggplot(count_df, aes(x = count, y = cluster, fill = sig)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = group_colors) +
+  theme_bw() +
+    #facet_grid(.~term)+
+  labs(
+    x = "Number of DEGs",
+    y = "Cell Type",
+    fill = "Group",
+    title = str_wrap("DEGs Overlap Between SocialSupport and no SocialSupport covariate model", width = 30)
+  ) +
+  theme(
+    plot.title = element_text(size = 11, hjust = 0.5, lineheight = 1.1),
+    axis.text = element_text(size = 9),
+    axis.title = element_text(size = 10)
+  )
+# Save the plot
+png(width = 12, height = 7, file=paste0(outFolder,"figures/noiselvsisel",".",var,"-",i,".stackedbar.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 500)
+print(fig0)
+dev.off()
+#}) #var loop
+}
+
+#SES vs no SES
+run="SES_PCs_sex_age_and_treats_generem"
+outFolder=paste0(baseoutFolder,run,"/")
+sesrun=paste0(run,"_SEScov")
+threshold=0.10
+
+for (i in treatmentsfirst){
+    allvardeseq <- ldply(lapply(c("PSS_all_mean","ISEL_Mean"),function(v){
+    cat("running",i,"\n")
+    deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",v,"-",i,".",run,".txt"))
+    ses_deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",v,"-",i,".",sesrun,".txt"))
+    merged_treat <- merge(deseqres,ses_deseqres,by=c("identifier","cluster","var","treats"))
+    subvars <- transform(merged_treat, noses_zscore=logFC.x/SE.x, ses_zscore=logFC.y/SE.y, sig=as.factor(ifelse(padj.x<threshold & padj.y<threshold, "4both", ifelse(padj.x<=threshold, "3noses_sig", ifelse(padj.y<=threshold, "2ses_sig", "1Not_Sig")))))
+}), data.frame)
+group_colors <- c("1Not_Sig" = "grey","3noses_sig" = "#E34234", "2ses_sig" = "turquoise4", "4both" = "#7851A9")
+
+lapply(c("PSS_all_mean","ISEL_Mean"),function(v){
+    subvardeseq <- subset(allvardeseq, var==v)
+p <- ggplot(subvardeseq, aes(x=ses_zscore, y=noses_zscore)) +
+  theme_bw()+
+  geom_point(aes(color=sig))+ #aes(color=sig)
+scale_color_manual(values = group_colors) +
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  geom_abline()+
+#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+      png(width = 12, height = 12, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",v,".",run,".sesvsnoses.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 600)
+print(p)
+dev.off()
+#per cluster
+p <- ggplot(subvardeseq, aes(x=ses_zscore, y=noses_zscore)) +
+  theme_bw()+
+  facet_wrap(.~cluster,ncol=3)+
+  geom_point(aes(color=sig))+ #aes(color=sig)
+  scale_color_manual(values = group_colors) +
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  geom_abline()+
+#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+png(width = 12, height = 12, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",v,".",run,".sesvsnoses_bycluster.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 600)
+print(p)
+dev.off()
+#venn
+deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",v,"-",i,".",run,".txt"))
+ses_deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",v,"-",i,".",sesrun,".txt"))
+deseqres <- transform(deseqres, model="noSESCov")
+ses_deseqres <- transform(ses_deseqres, model="SESCov")
+noSESressig <- subset(deseqres,padj<0.1)
+SESressig <- subset(ses_deseqres,padj<0.1)
+if(dim(noSESressig)[1]>0 & dim(SESressig)[1]>0){
+df <- unique(rbind(noSESressig[,c("identifier","model")],SESressig[,c("identifier","model")]))
+d_list <- split(df$identifier,df$model)
+V_d_list <- Venn(d_list)
+Vennlist <- compute.Venn(V_d_list, doWeights = TRUE)
+#Vennlist@FaceLabels <- transform(Vennlist@FaceLabels, y=ifelse(Signature==100, 70, y))
+Vennlist@FaceLabels <- distinct(Vennlist@FaceLabels,Signature, .keep_all= TRUE)
+gp <- VennThemes(Vennlist)
+png(width =6, height = 6, file=paste0(outFolder,"figures/",project,".",v,"-",i,".nosesvsses_venn.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 1200)
+par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
+p <- plot(Vennlist, gpList=gp, show = list(FaceText = c("weight"), DarkMatter = TRUE))
+print(p)
+dev.off()
+}
+#barplot
+subvars_sig <- subset(subvardeseq, !sig=="1Not_Sig")
+count_df <- subvars_sig %>%
+  group_by(cluster, sig) %>%
+  dplyr::summarise(count = n(), .groups = "drop")
+
+group_colors <- c("3noses_sig" = "#E34234", "2ses_sig" = "turquoise4", "4both" = "#7851A9")
+
+fig0 <- ggplot(count_df, aes(x = count, y = cluster, fill = sig)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = group_colors) +
+  theme_bw() +
+    #facet_grid(.~term)+
+  labs(
+    x = "Number of DEGs",
+    y = "Cell Type",
+    fill = "Group",
+    title = str_wrap("DEGs Overlap Between SES and no SES covariate model", width = 30)
+  ) +
+  theme(
+    plot.title = element_text(size = 11, hjust = 0.5, lineheight = 1.1),
+    axis.text = element_text(size = 9),
+    axis.title = element_text(size = 10)
+  )
+# Save the plot
+png(width = 12, height = 7, file=paste0(outFolder,"figures/nosesvsses",".",v,"-",i,".stackedbar.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 500)
+print(fig0)
+dev.off()
+})
+}
+
+#want to plot WHR vs no WHR in DESeq model
+run="SES_PCs_sex_age_and_treats_generem"
+outFolder=paste0(baseoutFolder,run,"/")
+sesrun=paste0(run,"_WHRcov")
+var="PSS_all_mean"
+threshold=0.10
+
+for (i in treatmentsfirst){
+    allvardeseq <- ldply(lapply(c("cytocomp","PSS_all_mean","ISEL_Mean"),function(var){
+    cat("running",i,var,"\n")
+    deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
+    ses_deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",sesrun,".txt"))
+    merged_treat <- merge(deseqres,ses_deseqres,by=c("identifier","cluster","var","treats"))
+    subvars <- transform(merged_treat, noWHR_zscore=logFC.x/SE.x, WHR_zscore=logFC.y/SE.y, sig=as.factor(ifelse(padj.x<threshold & padj.y<threshold, "4both", ifelse(padj.x<=threshold, "3noWHR_sig", ifelse(padj.y<=threshold, "2WHR_sig", "1Not_Sig")))))
+}), data.frame)
+group_colors <- c("1Not_Sig" = "grey","3noWHR_sig" = "#E34234", "2WHR_sig" = "turquoise4", "4both" = "#7851A9")
+
+lapply(c("cytocomp","PSS_all_mean","ISEL_Mean"),function(v){
+        cat("plotting",i,v,"\n")
+    subvardeseq <- subset(allvardeseq, var==v)
+p <- ggplot(subvardeseq, aes(x=WHR_zscore, y=noWHR_zscore)) +
+  theme_bw()+
+  geom_point(aes(color=sig))+ #aes(color=sig)
+scale_color_manual(values = group_colors) +
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  geom_abline()+
+#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+      png(width = 12, height = 12, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",v,".",run,".WHRvsnoWHR.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 600)
+print(p)
+dev.off()
+#per cluster
+p <- ggplot(subvardeseq, aes(x=WHR_zscore, y=noWHR_zscore)) +
+  theme_bw()+
+  facet_wrap(.~cluster,ncol=3)+
+  geom_point(aes(color=sig))+ #aes(color=sig)
+  scale_color_manual(values = group_colors) +
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  geom_abline()+
+#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+      png(width = 12, height = 12, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",v,".",run,".WHRvsnoWHR_bycluster.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 600)
+print(p)
+dev.off()
+})
+}
+
+for (i in treatmentsfirst){
+    lapply(c(zcytokines,firstrunvars),function(var){
     cat("running",i,"\n")
     deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
-    ses_deseqres <- fread(paste0(sesoutFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",sesrun,".txt"))
-    merged_treat <- merge(deseqres,ses_deseqres,by=c("identifier","cluster","var"))
-    subvars <- transform(merged_treat, noisel_zscore=logFC.x/SE.x, isel_zscore=logFC.y/SE.y, sig=as.factor(ifelse(padj.x<threshold & padj.y<threshold, "4both", ifelse(padj.x<=threshold, "3noisel_sig", ifelse(padj.y<=threshold, "2isel_sig", "1Not_Sig")))))
-#didnt update this one for the colored by sig
-p <- ggplot(subvars, aes(x=isel_zscore, y=noisel_zscore)) +
-  theme_bw()+
-  geom_point(aes(color=sig))+ #aes(color=sig)
-  geom_vline(xintercept = 0)+
-  geom_hline(yintercept = 0)+
-  geom_abline()+
-#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
-  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
-    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
-    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
-    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
-    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
-      png(width = 12, height = 12, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,".iselvsnoisel.png"), pointsize=12, 
-      bg = "transparent", canvas = "white", units = "in", res = 1200)
+    ses_deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",sesrun,".txt"))
+    merged_treat <- merge(deseqres,ses_deseqres,by=c("identifier","cluster","var","treats"))
+    subvars <- transform(merged_treat, noWHR_zscore=logFC.x/SE.x, WHR_zscore=logFC.y/SE.y, sig=as.factor(ifelse(padj.x<threshold & padj.y<threshold, "4both", ifelse(padj.x<=threshold, "3noWHR_sig", ifelse(padj.y<=threshold, "2WHR_sig", "1Not_Sig")))))
+
+deseqres <- transform(deseqres, model="noWHRCov")
+ses_deseqres <- transform(ses_deseqres, model="WHRCov")
+
+noSESressig <- subset(deseqres,padj<0.1)
+SESressig <- subset(ses_deseqres,padj<0.1)
+
+if(dim(noSESressig)[1]>0 & dim(SESressig)[1]>0){
+df <- unique(rbind(noSESressig[,c("identifier","model")],SESressig[,c("identifier","model")]))
+
+d_list <- split(df$identifier,df$model)
+V_d_list <- Venn(d_list)
+Vennlist <- compute.Venn(V_d_list, doWeights = TRUE)
+#Vennlist@FaceLabels <- transform(Vennlist@FaceLabels, y=ifelse(Signature==100, 70, y))
+Vennlist@FaceLabels <- distinct(Vennlist@FaceLabels,Signature, .keep_all= TRUE)
+gp <- VennThemes(Vennlist)
+png(width =6, height = 6, file=paste0(outFolder,"figures/",project,".",var,"-",i,".noWHRvsWHR_venn.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 600)
+par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
+p <- plot(Vennlist, gpList=gp, show = list(FaceText = c("weight"), DarkMatter = TRUE))
 print(p)
 dev.off()
 }
-#want to plot SES vs no SES in DESeq model
-sesrun="SES_PCs_SES_sex_age_and_treats_generem"
-run="SES_PCs_sex_age_and_treats_generem"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/")
-outFolder=paste0(baseoutFolder,run,"/")
-sesoutFolder=paste0(baseoutFolder,sesrun,"/")
-threshold=0.10
-variablesL <- variablesL[-c(1,3)]
 
-for (i in c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX")){
-subvars <- ldply(lapply(variablesL, function(var){
-    cat("running",i,var,"\n")
-    if(file.exists(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))){
-        deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
-        ses_deseqres <- fread(paste0(sesoutFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",sesrun,".txt"))
-        merged_treat <- merge(deseqres,ses_deseqres,by=c("identifier","cluster","var"))
-        merged_treat <- transform(merged_treat, noSES_zscore=logFC.x/SE.x, SES_zscore=logFC.y/SE.y, sig=as.factor(ifelse(padj.x<threshold & padj.y<threshold, "4both", ifelse(padj.x<=threshold, "3noSES_sig", ifelse(padj.y<=threshold, "2SES_sig", "1Not_Sig")))))
-        return(merged_treat)
-    }
-}),data.frame)
-#didnt update this one for the colored by sig
-p <- ggplot(subvars, aes(x=SES_zscore, y=noSES_zscore)) +
-  facet_wrap(.~var)+
-  theme_bw()+
-  geom_point(aes(color=sig))+ #aes(color=sig)
-  geom_vline(xintercept = 0)+
-  geom_hline(yintercept = 0)+
-  geom_abline()+
-#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
-  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
-    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
-    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
-    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
-    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
-      png(width = 12, height = 12, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,".sesvsnoses.png"), pointsize=12, 
-      bg = "transparent", canvas = "white", units = "in", res = 1200)
-print(p)
-dev.off()
-}
-#plotting DSES09 sep as it was less correlated - due to specific cluster?
-subvars <- ldply(lapply(c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX"), function(i){
-var="DSES_09"
-deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
-ses_deseqres <- fread(paste0(sesoutFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",sesrun,".txt"))
-merged_treat <- merge(deseqres,ses_deseqres,by=c("identifier","cluster","var","treats"))
-merged_treat <- transform(merged_treat, noSES_zscore=logFC.x/SE.x, SES_zscore=logFC.y/SE.y, sig=as.factor(ifelse(padj.x<threshold & padj.y<threshold, "4both", ifelse(padj.x<=threshold, "3noSES_sig", ifelse(padj.y<=threshold, "2SES_sig", "1Not_Sig")))))
-return(merged_treat)
-}),data.frame)
-p <- ggplot(subvars, aes(x=noSES_zscore, y=SES_zscore)) +
-  facet_wrap(treats~cluster, scales="free")+
-  theme_bw()+
-  geom_point(aes(color=sig))+ #aes(color=sig)
-  geom_vline(xintercept = 0)+
-  geom_hline(yintercept = 0)+
-  geom_smooth(method = "lm", fill = NA)+
-#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
-  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
-    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
-    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
-    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
-    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
-      png(width = 12, height = 12, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",var,".",run,".sesvsnoses.png"), pointsize=12, 
-      bg = "transparent", canvas = "white", units = "in", res = 1200)
-print(p)
+#bar plot version
+group_colors <- c("3noWHR_sig" = "#E34234", "2WHR_sig" = "turquoise4", "4both" = "#7851A9")
+subvars_sig <- subset(subvars, !sig=="1Not_Sig")
+
+count_df <- subvars_sig %>%
+  group_by(cluster, sig) %>%
+  dplyr::summarise(count = n(), .groups = "drop")
+
+fig0 <- ggplot(count_df, aes(x = count, y = cluster, fill = sig)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = group_colors) +
+  theme_bw() +
+    #facet_grid(.~term)+
+  labs(
+    x = "Number of DEGs",
+    y = "Cell Type",
+    fill = "Group",
+    title = str_wrap("DEGs Overlap Between WHR and no WHR covariate model", width = 30)
+  ) +
+  theme(
+    plot.title = element_text(size = 11, hjust = 0.5, lineheight = 1.1),
+    axis.text = element_text(size = 9),
+    axis.title = element_text(size = 10)
+  )
+# Save the plot
+png(width = 12, height = 7, file=paste0(outFolder,"figures/WHRvsnoWHR",".",var,"-",i,".stackedbar.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 500)
+print(fig0)
 dev.off()
 
-#identifying SES only sig DEGs
-sesonlydegs <- ldply(lapply(c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX"), function(i){
-    subvars <- ldply(lapply(variablesL, function(var){
-        cat("running",i,var,"\n")
-        if(file.exists(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))){
-            deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
-            ses_deseqres <- fread(paste0(sesoutFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",sesrun,".txt"))
-            merged_treat <- merge(deseqres,ses_deseqres,by=c("identifier","cluster","var","treats"))
-            merged_treat <- transform(merged_treat, noSES_zscore=logFC.x/SE.x, SES_zscore=logFC.y/SE.y, sig=as.factor(ifelse(padj.x<threshold & padj.y<threshold, "4both", ifelse(padj.x<=threshold, "3noSES_sig", ifelse(padj.y<=threshold, "2SES_sig", "1Not_Sig")))))
-            return(merged_treat)
-        }
-    }),data.frame)
-    sesonly_subvars <- subset(subvars, sig=="2SES_sig")
-    return(sesonly_subvars)
-}),data.frame)
-length(unique(sesonlydegs$identifier))
-table(sesonlydegs$var,sesonlydegs$treats)
-sesonlydegs_ctrl <- subset(sesonlydegs,treats=="RNA-CTRL")
-table(sesonlydegs$var,sesonlydegs$cluster)
-head(unique(sesonlydegs_ctrl[order(sesonlydegs_ctrl$padj.y),]$identifier),n=20)
-
-#fishers test for health vs psych vars in SES test
-myDir <- paste0(sesoutFolder,"deseqres/")
-filenames <- list.files(myDir) #file list from directory
-filenames <- filenames[grep(paste0(project,".",resset,".",dimset,".deseqres_"),filenames)]
-data_names <- gsub(".SES_PCs_SES_sex_age_and_treats_generem.txt", "", filenames) #remove file ending
-data_names <- gsub("ALL.0.2.11.deseqres_", "", data_names)
-for(i in 1:length(filenames)) assign(data_names[i], fread(file.path(myDir, filenames[i]),header = TRUE, sep='\t')[,analysis:=data_names[i]]) #read in specific files and set the df object names. can dro0p unwanted columns
-ddf <- lapply(data_names, function(x) get(x)) #grab data from list of df names
-names(ddf) <- c(data_names)
-df <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) 
-
-ses_deseqresd <- merge(df,cat_cov_m,by.x="var",by.y="variable")
-ses_deseqresd <- transform(ses_deseqresd,identifier=gsub("-","_",identifier))
-ses_deseqresdm <- melt(ses_deseqresd[,c("var","identifier","cluster","treats","health_vs_psych","padj")])
-test <- reshape2::dcast(identifier ~ health_vs_psych,ses_deseqresdm, value.var="value")
-
-
-ses_deseqresd_h <- subset(ses_deseqresd,health_vs_psych=="health")
-ses_deseqresd_p <- subset(ses_deseqresd,health_vs_psych=="psych")
-ses_deseqresd_sig <- subset(ses_deseqresd, padj<0.1)
-
-t <- table(health=ses_deseqresd_sig$health_vs_psych=="health",psych=ses_deseqresd_sig$health_vs_psych=="psych", useNA = "always")[-3,-3]
-
-t <- table(health=ses_deseqresd[ses_deseqresd$padj<0.1 & ses_deseqresd$health_vs_psych=="health",],psych=ses_deseqresd[ses_deseqresd$padj<0.1 & ses_deseqresd$health_vs_psych=="psych",], useNA = "always")[-3,-3]
-df_fisher <- tryCatch(fisher.test(t), error=function(e) data.frame(estimate=NA,p.value=NA,conf.int=c(NA,NA)))
-t1 <- unique(data.frame(contrast=paste0(i,"_",c),truetrue=tryCatch(t[2,2],error=function(x)NA),oddsratio=df_fisher$estimate,pval=df_fisher$p.value,
-    CI_low=df_fisher$conf.int[1], CI_high=df_fisher$conf.int[2]))
-
-
-# running treatment DEGs
-withCOMBAT=FALSE
-run="treatment_withCOMBAT"
-run="treatment_noCOMBAT"
-outFolder=paste0(baseoutFolder,run,"/")
-if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
-if (!file.exists(paste0(outFolder,"stats/"))) dir.create(paste0(outFolder,"stats/"), showWarnings=F)
-if (!file.exists(paste0(outFolder,"sigDEGs/"))) dir.create(paste0(outFolder,"sigDEGs/"), showWarnings=F)
-if (!file.exists(paste0(outFolder,"deseqres/"))) dir.create(paste0(outFolder,"deseqres/"), showWarnings=F)
-if (!file.exists(paste0(outFolder,"sampleid/"))) dir.create(paste0(outFolder,"sampleid/"), showWarnings=F)
-if (!file.exists(paste0(outFolder,"sampleid_all/"))) dir.create(paste0(outFolder,"sampleid_all/"), showWarnings=F)
-if (!file.exists(paste0(outFolder,"figures/"))) dir.create(paste0(outFolder,"figures/"), showWarnings=F)
-
-contrastdf <- data.frame(control=c("RNA-CTRL","RNA-LPS"),treatment=c("RNA-LPS","RNA-LPS-DEX"))
-contrastdf <- transform(contrastdf, contrast=paste0(treatment,"_vs_",control))
-
-lapply(names(counts_ls),function(cluster){
-    #cluster=names(counts_ls)[1]
-        cat("running ", cluster, "\n")
-    fdr=0.05
-#    if(!isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types.",contrast,".",run,".txt")) > 0)){
-    cat("running deseq ",cluster," \n")
-    cluster_counts_sce <- counts_ls[[cluster]]
-    cluster_metadata_sce <- metadata_ls[[cluster]]
-    cluster_counts <- assay(cluster_counts_sce, "counts")
-    cluster_metadata <- data.frame(cluster_metadata_sce)
-    cluster_metadata <- transform(cluster_metadata, treats=as.factor(treats))
-    cluster_metadata <- within(cluster_metadata, treats <- relevel(treats, ref = "RNA-CTRL"))
-    if(withCOMBAT){
-    opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
-    load(opfn)
-    } else {
-        adjusted_counts <- cluster_counts
-    }
-
-    d <- data.frame(number_ind=length(unique(cluster_metadata[,c("Sample_ID")])))
-    fwrite(d, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sampleid_all/",project,".",cluster,".sampleid_all.",run,".txt"))
-
-    mclapply(1:nrow(contrastdf),function(x) {
-        con=contrastdf[x,]
-        contrast=con$contrast
-        cat("running",contrast,"\n")
-        cluster_metadata_var <- cluster_metadata[,c("Sample_ID","treats")]
-        cluster_metadata_var <- subset(cluster_metadata_var, treats %in% c(con$control,con$treatment)) #removing due to low ind counts
-        indcount <- plyr::count(cluster_metadata_var,"Sample_ID")
-        cluster_metadata_var <- subset(cluster_metadata_var, Sample_ID %in% subset(indcount, freq>1)$Sample_ID)
-        design <-  paste0("~ Sample_ID + treats")
-        cluster_metadata_var <- cluster_metadata_var[which(rownames(cluster_metadata_var) %in% colnames(adjusted_counts)),]
-        cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
-        cluster_counts_t <- adjusted_counts[,which(colnames(adjusted_counts) %in% rownames(cluster_metadata_var))]
-        all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
-
-        dds <- DESeqDataSetFromMatrix(cluster_counts_t, 
-                                      colData = cluster_metadata_var, 
-                                      design = as.formula(design))
-        dds <- DESeq(dds,parallel=TRUE)
-        opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",cluster,".",contrast,".",run,".RDS")
-        saveRDS(dds, file=opfn)
-
-        res <- results(dds, contrast=c("treats",con$treatment,con$control))
-        sub.table <- data.frame(res@rownames, res$'padj', res$'pvalue', res$'log2FoldChange', res$'lfcSE',stringsAsFactors=FALSE)
-        names(sub.table) <- c('identifier', 'padj', 'pvalue', 'logFC','SE')
-        sub.table <- sub.table[!is.na(sub.table$padj), ]
-        cat("BH diff. expressed ids.  ", sapply(c(0.01,0.05,0.1,0.2),function (tr) c(paste(",",tr*100,"%FDR->"), sum(na.omit(res$padj)<tr))),"\n")
-        sub.table$cluster=cluster
-        fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".",cluster,".deseqres.",contrast,".",run,".txt"))
-        sigDEGs <- subset(sub.table,padj<fdr)
-        sigDEGs <- sigDEGs[order(sigDEGs$padj), ]
-        fwrite(sigDEGs, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,".sigDEGs.",contrast,".",run,".txt"))
-        table <- data.frame(cluster=cluster, contrast=contrast)
-        table$number_samples <- paste(nrow(cluster_metadata_var))
-        table$number_individuals <- paste(length(unique(cluster_metadata_var$Sample_ID)))
-        table$gene_number <- paste(nrow(cluster_counts_t))
-        table$tested_genes <- paste(nrow(sub.table))
-        table$DEGs_FDR <- paste(nrow(sigDEGs))
-        table$DEGs_FDR_10 <- paste(nrow(subset(sub.table,padj<0.1)))
-        fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types.",contrast,".",run,".txt"))
-        })    
-    #}
 })
-
-for (x in c(1:nrow(contrastdf))){
-    con=contrastdf[x,]
-    contrast=con$contrast
-    cat("running ",contrast,"\n")
-    sub.table <- ldply(lapply(names(counts_ls), function(cluster){
-        if(file.exists(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".",cluster,".deseqres.",contrast,".",run,".txt"))){
-        sub.table <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".",cluster,".deseqres.",contrast,".",run,".txt"),header=T)
-        }
-        }),data.frame)
-    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres.",contrast,".",run,".txt"))
-    sub.table <- ldply(lapply(names(counts_ls), function(cluster){
-        if(file.exists(paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,".sigDEGs.",contrast,".",run,".txt"))){
-        sub.table <- fread(paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".",cluster,".sigDEGs.",contrast,".",run,".txt"),header=T)
-        }    
-    }),data.frame)
-    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"sigDEGs/",project,".",resset,".",dimset,".sigDEGs.",contrast,".",run,".txt"))
-    sub.table <- ldply(lapply(names(counts_ls), function(cluster){
-        if(file.exists(paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types.",contrast,".",run,".txt"))){
-        sub.table <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types.",contrast,".",run,".txt"),header=T)
-        }
-    }),data.frame)
-    fwrite(sub.table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types.",contrast,".",run,".txt"))
 }
 
-subvars <- ldply(lapply(1:nrow(contrastdf), function(x){
-    con=contrastdf[x,]
-    contrast=con$contrast
-    cat("running",contrast,"\n")
-    if(file.exists(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types.",contrast,".",run,".txt"))){
-    stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types.",contrast,".",run,".txt"))
-    if(dim(subset(stats, DEGs_FDR_10>50))[1]<1){ #first subset variables that have at least one cluster with 50DEGs
-        cat("not enough DEGs","\n")
-        rm(stats)
-        } else{
-        deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres.",contrast,".",run,".txt"))
-        df <- ddply(deseqres, "cluster", plyr::summarize, ngenes=length(unique(identifier)))
-        newls <- lapply(names(counts_ls),function(c){
-            stats_c <- subset(stats,cluster==c)
-            dc <- subset(df, cluster==c)
-            d <- data.frame(numind=stats_c$number_individuals, ngenes=dc$ngenes,sigDEGs=stats_c$DEGs_FDR_10)
-            colnames(d) <- paste(c,colnames(d),sep=".")
-            return(d)
-            })
-            newtable <- data.frame(contrast=contrast,list.cbind(newls))
-            return(newtable)
-        }
-    }
-}),data.frame)
+#for (i in c(treatmentsfirst)){
+#    lapply(names(counts_ls), function(cluster){
+#        lapply(c(PFASvars), function(var){
+        cluster="C4"
+        var="PFOA"
+        i="RNA-CTRL"
+        cat("running",i,var,cluster,"\n")
+        opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",i,"-",var,cluster,".",run,".RData")
+        load(file=opfn)
+        res <- results(dds)
+        png(width = 6, height = 6, file=paste0(outFolder,"figures/",var,".",cluster,".",i,".",run,"_MAplot.png"), pointsize=12, bg = "transparent", units = "in", res = 1200)
+        plotMA(res)
+        dev.off()
+#        })
+#    })
+#}
 
-dft <- subvars %>% flextable() %>% span_header()  
+#also MA plots -- I didn't output basemean values ...
 
-dft <- align(dft, i = 1:2, j = NULL, align = "center", part = "header")
-flextable::save_as_image(
-  dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".png"))
+        deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
 
-degcols <- grep("sigDEGs",colnames(subvars))
-subsubvars <- subvars[,!grepl(paste(c(sapply(strsplit(colnames(subvars[,degcols[ apply(subvars[,degcols],MARGIN=2,FUN=max)<50]]),"[.]"),function(y) y[1]),"NA"),collapse="[.]|"),colnames(subvars))]
-dft <- subsubvars %>% flextable() %>% span_header() %>% set_caption(caption = run) 
-cols <- seq(1,length(subsubvars),by=3)
-border <- fp_border()
-big_border <- fp_border(color = "black", width = 2)
-dft <- align(dft, i = 1:2, j = c(2:length(subsubvars)), align = "center", part = "header")
-dft <- align(dft, i = NULL, j = c(2:length(subsubvars)), align = "center", part = "body")
-dft <- vline(dft, i = NULL, j = c(cols), border = border, part = "all")
-dft <- border_outer(dft, part = "all", border = big_border)
 
-flextable::save_as_image(
-  dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".50degs.png"))
+png(width = 6, height = 6, file=paste0(outFolder,"figures/",var,"-",i,".",run,"_MAplot.png"), pointsize=12, bg = "transparent", units = "in", res = 1200)
+par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
+ggplot(dat, aes(baseMean, log2FoldChange, col=sig, label=SYMBOL)) + 
+        geom_point() + scale_x_log10() + 
+        xlab("mean of normalized counts") + 
+        ylab("log fold change") + 
+        geom_hline(yintercept=0, col="grey40") + 
+        scale_color_manual(values=c("grey60", "blue")) +
+        geom_point(data=tab, shape=1, size=5, show.legend=FALSE) + 
+        geom_label_repel(data=tab, nudge_x = 1, nudge_y = 2*sign(tab$log2FoldChange), show.legend=FALSE)
+dev.off()
 
-subsubvars_degonly <- subsubvars[,!grepl("numind|ngenes",colnames(subsubvars))]
-dft <- subsubvars_degonly %>% flextable() %>% split_header()
-dft <- border_outer(dft, part = "all", border = big_border)
-dft <- vline(dft, i = NULL, j = c(1), border = border, part = "all")
-dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
-dft <- align(dft, i = NULL, j = c(2:length(subsubvars_degonly)), align = "center", part = "body")
+#volcano
+library(EnhancedVolcano)
 
-#dft <- align(dft, i = 1, j = NULL, align = "left", part = "body")
-flextable::save_as_image(
-  dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".ndegonly.png"))
-
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/")
-run="treatment_withCOMBAT"
-deseqres <- fread(paste0(baseoutFolder,run,"/deseqres/ALL.0.2.11.deseqres.RNA-LPS_vs_RNA-CTRL.treatment_withCOMBAT.txt"))
-figuredir <- paste0(baseoutFolder,run,"/figures/")
-for (c in names(counts_ls)){
+        deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
+#for (c in names(counts_ls)){
+    c="C4"
     cat("running ", c, "\n")
     sub.table <- subset(deseqres, cluster==c)
     sub.table <- sub.table[order(sub.table$padj,-abs(sub.table$logFC)), ]
@@ -942,7 +1241,7 @@ for (c in names(counts_ls)){
     xmin=min(sub.table$logFC)-0.5
     topp1 <- min(subset(sub.table, padj > quantile(padj, prob = 1 -99/100,na.rm=T))$pvalue)
     tolab <- c(unique(head(sub.table,n=20)$identifier))
-    png(width = 8, height = 8, file=paste0(figuredir,"dge_volcano-",run,"-",c,".png"), pointsize=12, 
+    png(width = 8, height = 8, file=paste0(outFolder,"figures/dge_volcano-",var,"-",i,".",run,"-",c,".png"), pointsize=12, 
           bg = "transparent", units = "in", res = 1200)
     p <- EnhancedVolcano(sub.table,
       lab = sub.table$identifier,
@@ -964,413 +1263,153 @@ for (c in names(counts_ls)){
       drawConnectors = TRUE)
     print(p)
     dev.off()
-}
+#}
 
-
-
-
-
-#New table: var|#CTRL|#LPS|#interactiontest for 
+#plotting LPS vs CONTROL
 run="SES_PCs_sex_age_and_treats_generem"
-run="SES_PCs_sex_age_and_treats_generem_zingeR"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/")
 outFolder=paste0(baseoutFolder,run,"/")
-variablesL <- c("chronic_sum","cytocomp", "SES","PSS_all_mean", "Chol_HDL", "BPd_avg", "isel", "pr_comp")  #for regular runs
-secondrunvars=c(psychvarstorun[c(1:13,24:45)],"age")
+threshold=0.10
 treat="RNA-LPS"
 control="RNA-CTRL"
-subvars <- ldply(lapply(secondrunvars, function(var){
+subvars <- ldply(lapply(c("PSS_all_mean","ISEL_Mean"), function(var){
     cat("running",treat,"vs",control,var,"\n")
-        ctrl_stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",control,".",run,".txt"))
-        treat_stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",treat,".",run,".txt"))
-        merged_treat <- merge(ctrl_stats,treat_stats,by=c("symb","variable","cluster"))
+        ctrl_deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",control,".",run,".txt"))
+        treat_deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",treat,".",run,".txt"))
+        merged_treat <- rbind(ctrl_deseqres,treat_deseqres)
         return(merged_treat)
 }),data.frame)
+#intrun="SES_PCs_sex_age_and_treats_generem_treatint"
+##intrun="SES_PCs_sex_age_and_treats_generem_zingeR_treatint"
+#intoutFolder=paste0(baseoutFolder,intrun,"/")
+#myDir <- paste0(intoutFolder,"deseqres/")
+#filenames <- list.files(myDir) #file list from directory
+#filenames <- filenames[grep(".treatinteraction.txt",filenames)]
+#data_names <- gsub(paste0(".",run,".treatinteraction.txt"), "", filenames) #remove file ending
+#data_names <- gsub(paste0(project,".",resset,".",dimset,".deseqres_"), "", data_names)
+#for(i in 1:length(filenames)) assign(data_names[i], fread(file.path(myDir, filenames[i]),header = TRUE, sep='\t')) #read in specific files and set the df object names. can dro0p unwanted columns
+#ddf <- lapply(data_names, function(x) get(x)) #grab data from list of df names
+#names(ddf) <- c(data_names)
+#deseqres <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) #recursively merge df from list of df. still not sure what accumulate does
+#names(deseqres)[8] <- c("treats")
+#deseqres <- transform(deseqres, treats="interaction")
+#deseqresL <- subset(deseqres, var %in% variablesL)
 
-intrun="SES_PCs_sex_age_and_treats_generem_treatint"
-intrun="SES_PCs_sex_age_and_treats_generem_zingeR_treatint"
-intoutFolder=paste0(baseoutFolder,intrun,"/")
-myDir <- paste0(intoutFolder,"stats/")
-filenames <- list.files(myDir) #file list from directory
-filenames <- filenames[grep(".treatinteraction.txt",filenames)]
-data_names <- gsub(paste0(".",run,".treatinteraction.txt"), "", filenames) #remove file ending
-data_names <- gsub(paste0(project,".",resset,".",dimset,".stats_all_cell_types-"), "", data_names)
-for(i in 1:length(filenames)) assign(data_names[i], fread(file.path(myDir, filenames[i]),header = TRUE, sep='\t')) #read in specific files and set the df object names. can dro0p unwanted columns
-ddf <- lapply(data_names, function(x) get(x)) #grab data from list of df names
-names(ddf) <- c(data_names)
-stats <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) #recursively merge df from list of df. still not sure what accumulate does
-colnames(stats) <- c("symb","description","cluster","contrast","number_samples","number_individuals","gene_number","tested_genes","DEGs_FDR","sigDEGs")
-stats_int <- transform(stats, symb_contrast=paste(symb,contrast,sep=":"))
+#all <- rbind(subvars,deseqresL)
+library(gridExtra)
+all <- subvars
+all_sig <- subset(all, padj<0.1)
+lapply(split(all_sig,all_sig$var),function(i){
+    myvar=unique(i$var)
+    cat("running ",myvar)
+    df <- unique(i[,c("identifier","treats")])
+    d_list <- split(df$identifier,df$treats)
+    V_d_list <- Venn(d_list)
+    Vennlist <- compute.Venn(V_d_list, doWeights = TRUE)
+    #Vennlist@FaceLabels <- transform(Vennlist@FaceLabels, y=ifelse(Signature==100, 70, y))
+    Vennlist@FaceLabels <- distinct(Vennlist@FaceLabels,Signature, .keep_all= TRUE)
+    gp <- VennThemes(Vennlist)
+    png(width =6, height = 6, file=paste0(outFolder,"figures/",resset,".",dimset,".",myvar,".ctrlvslps_venn.png"), pointsize=12, 
+    #png(width =6, height = 6, file=paste0(outFolder,"figures/",resset,".",dimset,".",myvar,".ctrlvsplsvsint_venn.png"), pointsize=12, 
+          bg = "transparent", units = "in", res = 1200)
+    par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
+    p <- plot(Vennlist, gpList=gp, show = list(FaceText = c("weight"), DarkMatter = TRUE)); grid.text(paste0(myvar), y=0.92, gp=gpar(col="black", cex=2))
+    print(p)
+    dev.off()
+})
 
-merged_treat <- merge(subvars,stats_int,by=c("symb","cluster"))
-df <- merged_treat[,c("symb","description","cluster","DEGs_FDR_10.x","DEGs_FDR_10.y","sigDEGs")]
-colnames(df) <- c("symb","description","cluster","CTRL","LPS","interaction")
-df50 <- subset(df, CTRL>49 | LPS>49 | interaction>49)
-df50 <- df50[order(df50$symb,df50$cluster),]
-
-dft <- df50 %>% flextable() %>% span_header() %>% set_caption(caption = run) 
-border <- fp_border()
-big_border <- fp_border(color = "black", width = 2)
-dft <- align(dft, i = 1, j = c(1:length(df50)), align = "center", part = "header")
-dft <- align(dft, i = NULL, j = c(2:length(df50)), align = "center", part = "body")
-dft <- vline(dft, i = NULL, j = c(2,3,4,5), border = border, part = "all")
-dft <- border_outer(dft, part = "all", border = big_border)
-
-flextable::save_as_image(
-  dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".ctrlvslpsvsintdegs_table.png"))
-
-#New table: var|#ind|#tested genes
-treat="RNA-CTRL"
-subvars <- ldply(lapply(secondrunvars, function(var){
-    cat("running",treat,"vs",control,var,"\n")
-    ctrl_stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",control,".",run,".txt"))
-    df <- merge(ctrl_stats,variables_df,by=c("variable"))
-    dft <- df[,c("symb","description","cluster","number_individuals","tested_genes")]
+#plotting LPS vs CONTROL scatter
+subvars <- ldply(lapply(c("PSS_all_mean","ISEL_Mean"), function(v){
+    cat("running",treat,"vs",control,v,"\n")
+    ctrl_deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",v,"-",control,".",run,".txt"))
+    treat_deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",v,"-",treat,".",run,".txt"))
+    merged_treat <- merge(ctrl_deseqres,treat_deseqres,by=c("identifier","cluster","var"),all=T)
+    merged_treat_all <- transform(merged_treat, CTRL_zscore=logFC.x/SE.x, LPS_zscore=logFC.y/SE.y)
+    merged_treat_all <- merged_treat_all %>% mutate(sig = case_when(
+    padj.x<threshold & padj.y<threshold ~ "4CTRLandLPS_sig",
+    padj.x < threshold ~ "3CTRL_sig",
+    padj.y < threshold ~ "2LPS_sig",    
+    ))
+    merged_treat_all$sig[is.na(merged_treat_all$sig)] <- "1Not_Sig"
+    return(merged_treat_all)
 }),data.frame)
-df50_ctrl <- subset(df, CTRL>49)
-subsubvars <- subset(subvars, paste0(symb,"_",cluster) %in% paste0(df50_ctrl$symb,"_",df50_ctrl$cluster))
-subsubvars <- subsubvars[order(subsubvars$symb,subsubvars$cluster),]
 
-dft <- subsubvars %>% flextable() %>% span_header() %>% set_caption(caption = run) 
-border <- fp_border()
-big_border <- fp_border(color = "black", width = 2)
-dft <- align(dft, i = 1, j = c(1:length(subsubvars)), align = "center", part = "header")
-dft <- align(dft, i = NULL, j = c(2:length(subsubvars)), align = "center", part = "body")
-dft <- vline(dft, i = NULL, j = c(2,3,4,5), border = border, part = "all")
-dft <- border_outer(dft, part = "all", border = big_border)
-
-flextable::save_as_image(
-  dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".",treat,".numindandgenes_table.png"))
-
-treat="RNA-LPS"
-df50_ctrl <- subset(df, LPS>49)
-subsubvars <- subset(subvars, paste0(symb,"_",cluster) %in% paste0(df50_ctrl$symb,"_",df50_ctrl$cluster))
-subsubvars <- subsubvars[order(subsubvars$symb,subsubvars$cluster),]
-
-dft <- subsubvars %>% flextable() %>% span_header() %>% set_caption(caption = run) 
-border <- fp_border()
-big_border <- fp_border(color = "black", width = 2)
-dft <- align(dft, i = 1, j = c(1:length(subsubvars)), align = "center", part = "header")
-dft <- align(dft, i = NULL, j = c(2:length(subsubvars)), align = "center", part = "body")
-dft <- vline(dft, i = NULL, j = c(2,3,4,5), border = border, part = "all")
-dft <- border_outer(dft, part = "all", border = big_border)
-
-flextable::save_as_image(
-  dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".",treat,".numindandgenes_table.png"))
-
-treat="treatint"
-df50_ctrl <- subset(stats_int, sigDEGs>49)
-subsubvars <- subset(subvars, paste0(symb,"_",cluster) %in% paste0(df50_ctrl$symb,"_",df50_ctrl$cluster))
-subsubvars <- subsubvars[order(subsubvars$symb,subsubvars$cluster),]
-
-dft <- subsubvars %>% flextable() %>% span_header() %>% set_caption(caption = run) 
-border <- fp_border()
-big_border <- fp_border(color = "black", width = 2)
-dft <- align(dft, i = 1, j = c(1:length(subsubvars)), align = "center", part = "header")
-dft <- align(dft, i = NULL, j = c(2:length(subsubvars)), align = "center", part = "body")
-dft <- vline(dft, i = NULL, j = c(2,3,4,5), border = border, part = "all")
-dft <- border_outer(dft, part = "all", border = big_border)
-
-flextable::save_as_image(
-  dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".",treat,".numindandgenes_table.png"))
-
-#want to plot zingeR vs no regular in DESeq model
-sesrun="SES_PCs_sex_age_and_treats_generem_zingeR"
-run="SES_PCs_sex_age_and_treats_generem"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/")
-outFolder=paste0(baseoutFolder,run,"/")
-sesoutFolder=paste0(baseoutFolder,sesrun,"/")
-threshold=0.10
-
-for (i in c("RNA-CTRL","RNA-LPS")){
-    varsrun<-na.omit(ldply(lapply(variables_df$variable, function(var){
-    if(isTRUE(file.size(paste0(sesoutFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",sesrun,".txt")) > 0)){
-    df <- data.frame(variable=var)
-    } else {
-    df <- data.frame(variable=NA)
-    }
-    return(df)
-        }),data.frame))
-    subvars <- ldply(lapply(varsrun$variable, function(var){
-            cat("running",i,var,"\n")
-    deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
-    ses_deseqres <- fread(paste0(sesoutFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",sesrun,".txt"))
-    merged_treat <- merge(deseqres,ses_deseqres,by=c("identifier","cluster","var"))
-    merged_treat <- transform(merged_treat, regular_zscore=logFC.x/SE.x, zingeR_zscore=logFC.y/SE.y, sig=as.factor(ifelse(padj.x<threshold & padj.y<threshold, "4both", ifelse(padj.x<=threshold, "3regular_sig", ifelse(padj.y<=threshold, "2zingeR_sig", "1Not_Sig")))))
-    return(merged_treat)
-    }),data.frame)
-
-#didnt update this one for the colored by sig
-p <- ggplot(subvars, aes(x=zingeR_zscore, y=regular_zscore)) +
+cols <- c("4CTRLandLPS_sig" = "green","1Not_Sig" = "grey","3CTRL_sig" = "red", "2LPS_sig" = "blue")
+p <- ggplot(subvars, aes(x=CTRL_zscore, y=LPS_zscore)) +
+  facet_wrap(.~var)+
   theme_bw()+
   geom_point(aes(color=sig))+ #aes(color=sig)
   geom_vline(xintercept = 0)+
   geom_hline(yintercept = 0)+
   geom_abline()+
+  scale_colour_manual(values = cols)+
 #  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
   stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
     theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
     axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
     axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
     legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
-      png(width = 12, height = 12, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,".zingeRvsregular.png"), pointsize=12, 
+      png(width = 12, height = 12, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".lpsvsctrl_z.png"), pointsize=12, 
       bg = "transparent", canvas = "white", units = "in", res = 1200)
 print(p)
 dev.off()
-}
-#plot #DEGs scaip1 vs 2 color and shape for cluster and variable
-distinct_colors <- c("#2be360",
-"#7508c6",
-"#eac314",
-"#33046e",
-"#84a300",
-"#c978ff",
-"#f08e00",
-"#0265bd",
-"#c70008",
-"#4ab8ff",
-"#7d0e00",
-"#60d9d0",
-"#ff3a89",
-"#007b47",
-"#680043",
-"#1f4500",
-"#f4aff1",
-"#795900",
-"#ff945d",
-"#3d1e0a")
-distinct_colors <-c("#db6e00",
-"#4329cb",
-"#5fab00",
-"#c331df",
-"#019b32",
-"#b95aff",
-"#c2a700",
-"#0036b7",
-"#f9bc28",
-"#6d0096",
-"#79db87",
-"#ff7dfa",
-"#bcd05c",
-"#014ab7",
-"#9a9200",
-"#688bff",
-"#ff3123",
-"#01b281",
-"#a80044",
-"#01aea8",
-"#c14600",
-"#57aeff",
-"#6d0004",
-"#0086ce",
-"#ff9b6c",
-"#0155a6",
-"#6b6600",
-"#1f2865",
-"#d7b282",
-"#81004c",
-"#006a34",
-"#d5bbf9",
-"#273a00",
-"#ffabc9",
-"#724500",
-"#714771",
-"#ff928d",
-"#55133b")
-library(RColorBrewer)
-qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
-col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
-#pie(rep(1,n), col=sample(col_vector, n))
-    n <- 20
-    distinct=sample(col_vector, n)
-
-for (i in c("RNA-CTRL","RNA-LPS")){
-    varsrun<-na.omit(ldply(lapply(variables_df$variable, function(var){
-    if(isTRUE(file.size(paste0(sesoutFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",sesrun,".txt")) > 0)){
-    df <- data.frame(variable=var)
-    } else {
-    df <- data.frame(variable=NA)
-    }
-    return(df)
-        }),data.frame))
-    subvars <- ldply(lapply(varsrun$variable, function(var){
-    cat("running",i,var,"\n")
-    if(file.exists(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))){
-        stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
-        normal_stats <- fread(paste0(sesoutFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",sesrun,".txt"))
-        merged_treat <- merge(normal_stats,stats,by=c("cluster","variable","symb"))
-        names(merged_treat)[c(9,15)] <- c("zingeR_DEGs","Regular_DEGs")
-        return(merged_treat)
-    }
-}),data.frame)
-
-p <- ggplot(subvars, aes(x=zingeR_DEGs, y=Regular_DEGs)) +
+#ploting by var and cluster
+p <- ggplot(subvars, aes(x=CTRL_zscore, y=LPS_zscore)) +
+  facet_grid(cluster~var)+
   theme_bw()+
-  geom_point(size=7,aes(shape=cluster,color=variable,fill=variable))+ #aes(color=sig)
-  scale_shape_manual(values = c(7,8,15:18,25))+
-  scale_color_manual(values = distinct_colors) +
-  #scale_fill_discrete(guide="none")+
-  geom_vline(xintercept = 50,linetype="dotted",colour="red")+
-  geom_hline(yintercept = 50,linetype="dotted",colour="red")+
+  geom_point(aes(color=sig))+ #aes(color=sig)
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
   geom_abline()+
+  scale_colour_manual(values = cols)+
 #  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
   stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
     theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
     axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
     axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
     legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
-png(width = 10, height = 10, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,".zingeRvsregular_numDEGs.png"), pointsize=12, 
+      png(width = 14, height = 14, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".lpsvsctrl_z_mat.png"), pointsize=12, 
       bg = "transparent", canvas = "white", units = "in", res = 1200)
 print(p)
 dev.off()
-}
 
-#PFAS plotting only
-run="SES_PCs_sex_age_and_treats_generem"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/")
-outFolder=paste0(baseoutFolder,run,"/")
-PFAS <- c("Log_PFOA_1", "Log_PFHxS_1", "Log_PFNA_1", "Log_LPFHpS_1","Log_PFDA_1", "Log_PFOS_1", "Log_PFUdA_1") 
-allPFAS <- psychvarstorun[c(46:66)]
-combPFAS <- allPFAS[seq(1,21,3)]
-zoom="allPFAS"
-#zoom="zcytokines"
-#zoom="old_cytokines"
-#zoom="Lead"
-#sumPFAS <- allPFAS[seq(1,21,3)]
-for (i in c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX")){
-#subvars <- ldply(lapply(old_cytokines, function(var){
-subvars <- ldply(lapply("Lead", function(var){
-    cat("running",i,var,"\n")
-    if(isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){
-    stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt"))
-        deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"),select=c(1,7))
-        df <- ddply(deseqres, "cluster", plyr::summarize, ngenes=length(unique(identifier)))
-        newls <- lapply(names(counts_ls),function(c){
-            stats_c <- subset(stats,cluster==c)
-            dc <- subset(df, cluster==c)
-            d <- data.frame(numind=stats_c$number_individuals, ngenes=dc$ngenes,sigDEGs=stats_c$DEGs_FDR_10)
-            colnames(d) <- paste(c,colnames(d),sep=".")
-            return(d)
-            })
-        newls <- newls[sapply(newls, nrow)>0]
-            newtable <- data.frame(variable=var, list.cbind(newls))
-            return(newtable)
-    }
-}),data.frame)
-  fwrite(subvars, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",zoom,"-",i,".",run,".txt"))
-
-
-if( ncol(subvars) > 0){
-dft <- subvars %>% flextable() %>% span_header()
-dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
-flextable::save_as_image(
-  dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,".",zoom,".png"))
-}
-}
-
-##
-library(ggrastr)
-plotDF <- ldply(lapply(c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX"),function(i){
-    resall <- ldply(lapply(allPFAS,function(var){
-    res <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
-    ntest <- nrow(res)
-       res <- res%>%
-           arrange(pvalue)%>%
-           mutate(observed=-log10(pvalue), expected=-log10(ppoints(ntest)))
-           return(res)
-        }),data.frame)
-    return(resall)
-    }), data.frame)
-col2 <- hue_pal()(9) ### default ggplot color
-var2 <- sort(unique(plotDF$var))
-varSel2 <- c(combPFAS,"sumPFAS","log_sumPFAS")
-#varSel2 <- allPFAS[grep("Log",allPFAS)]
-#varSel2 <- "Lead"
-plotDF2 <- plotDF%>%filter(var%in%varSel2)
-
-p0 <- ggplot(plotDF2, aes(x=expected, y=observed, color=cluster))+
-    rasterise(geom_point(size=0.06), dpi=300)+
-    geom_abline(color="grey")+
-    #scale_color_manual(values=c("C0"="#F8766D", "C1"="#D39200", "C2"="#93AA00", "C3"="#00BA38",
-    #    "C4"="#00C19F", "C5"="#00B9E3", "C6"="#619CFF", "C7"="#DB72FB", "C8"="","C9"="#FF61C3"),
-    #    guide=guide_legend(override.aes=list(size=3)))+
-    facet_wrap(var~treats, scales="free_y", ncol=3)+
-    xlab(bquote("Expected"~-log[10]~"("~italic(p)~")"))+
-    ylab(bquote("observed"~-log[10]~"("~italic(p)~")"))+
-    theme_bw()+
-    theme(legend.title=element_blank(),
-          legend.text=element_text(size=9),
-          legend.key.size=grid::unit(0.4, "cm"),
-          axis.title=element_text(size=12),
-          axis.text=element_text(size=10),
-          strip.text=element_text(size=12))
-
-figfn <- paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".allPFAS_qqplot.png")
-ggsave(figfn, p0, width=1200, height=500, units="px", dpi=120)
-
-
-
-
-
-
-
-ci=0.95
-deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
-pc_results_bp <- deseqres %>% filter(!is.na(pvalue)) %>%
-            arrange(pvalue) %>%
-            mutate(r=rank(pvalue, ties.method = "random"),
-                   pexp=r/length(pvalue),
-                   clower   = -log10(qbeta(p = (1 - ci) / 2, shape1 = r, shape2 = length(pvalue)-r)),
-                   cupper   = -log10(qbeta(p = (1 + ci) / 2, shape1 = r, shape2 = length(pvalue)-r)))
-
-    png(paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",var,".",run,"_qqplot.png"), width=1000, height=1000, res=120)
-        p1 <- ggplot(pc_results_bp, aes(x=-log10(pexp),y=-log10(pvalue))) +
-            geom_ribbon(mapping = aes(x = -log10(pexp), ymin = clower, ymax = cupper),
-              alpha = 0.1,color="darkgray") +
-            geom_point(aes(color=cluster)) +
-            #facet_grid(.~var)+
-            geom_abline(slope=1,intercept=0) +
-        ##    facet_grid(Origin ~ Location) +
-            xlab(expression(Expected -log[10](p))) +
-            ylab(expression(Observed -log[10](p))) + 
-            ggtitle(paste0(var," ", i," eGene QQ Plot")) +
-            theme_classic() +
-            theme(legend.title= element_blank(), axis.title.x = element_text(size = rel(1.2)), axis.title.y = element_text(size = rel(1.2)), legend.text = element_blank(), plot.title = element_text(hjust=0.5,size = rel(1.3)))
-        print(p1)
-        dev.off()
-
-
-###############################################
-
-i="RNA-CTRL"
-    run="SES_PCs_sex_age_and_treats_generem"
-    varrun=c(psychvarstorun,"age","factor_HS_CRP")
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/")
-outFolder=paste0(baseoutFolder,run,"/")
-    subvars <- ldply(lapply(varrun, function(var){
-        if(file.exists(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))){
-
-        cat("running",i,var,"\n")
-        deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
-    }
-    }),data.frame)
-subvars_sig <- subset(subvars, padj<0.1)
-length(unique(subvars_sig$identifier))
-
-filenames <- c(paste0(project,".deseqres_SES-RNA-CTRL.txt"),paste0(project,".deseqres_SES-RNA-LPS.txt"))
-data_names <- gsub(".txt", "", filenames) #remove file ending
-shortnames <- gsub(".deseqres_", "", data_names)
-shortnames <- gsub(project, "", shortnames)
-for(i in 1:length(filenames)) assign(shortnames[i], fread(file.path(outFolder, filenames[i]),header = TRUE, sep='\t')[,analysis:=shortnames[i]]) #read in specific files and set the df object names. can dro0p unwanted columns
-ddf <- lapply(shortnames, function(x) get(x)) #grab data from list of df names
-names(ddf) <- c(shortnames)
-df <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) 
-
-
-
-
+#for logfc
+subvars_sig1 <- subset(subvars, padj.x<threshold | padj.y<threshold)
+p <- ggplot(subvars_sig1, aes(x=logFC.x, y=logFC.y)) +
+  facet_wrap(.~var, scales="free")+
+  theme_bw()+
+  geom_point(aes(color=sig))+ #aes(color=sig)
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  xlab("CTRL logFC") + ylab("LPS logFC")+
+  geom_abline()+
+  scale_colour_manual(values = cols)+
+#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+      png(width = 12, height = 12, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".lpsvsctrl_logfc.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 1200)
+print(p)
+dev.off()
+#ploting by var and cluster
+p <- ggplot(subvars, aes(x=logFC.x, y=logFC.y)) +
+  facet_grid(cluster~var, scales="free")+
+  theme_bw()+
+  geom_point(aes(color=sig))+ #aes(color=sig)
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  xlab("CTRL logFC") + ylab("LPS logFC")+
+  geom_abline()+
+  scale_colour_manual(values = cols)+
+#  geom_text(aes(x=-Inf, y=Inf, hjust=-0.2, vjust=1.2, label = r2_eqn(lm(as.numeric(AF) ~ as.numeric(value)))), data=bbinom_ind_pop[bbinom_ind_pop$cell %in% c(unique(snp1$cell))], parse = TRUE, size=6,colour="black") 
+  stat_cor(color="blue",method="spearman",cor.coef.name = "rho", size=6, label.sep="\n", r.digits=2,na.rm=T)+ #label.x = -6,label.y = 5
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.text=element_text(size = rel(1.3)),legend.title=element_text(size = rel(1.5)),strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+      png(width = 14, height = 14, file=paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".lpsvsctrl_mat_logfc.png"), pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 1200)
+print(p)
+dev.off()
