@@ -17,7 +17,7 @@ future::plan(strategy = 'multicore', workers = 10)
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
 args <- commandArgs(trailingOnly = TRUE)
-args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","/rs/rs_grp_scaloft/scALOFT_2024/covariates/ALOFT_covariate_issues_fixed_uniq-n265_psesl-a2_fixed_12-19-2024.txt","ALL","demux","/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt",0.2) 
+args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","/rs/rs_grp_scaloft/scALOFT_2024/covariates/ALOFT_covariate_issues_fixed_uniq-n265_psesl-a2_fixed_12-19-2024.txt","ALL","demux","/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt",0.1,50) #old (all treat) was res 0.2 and dim 50
 
 base <- args[1]
 
@@ -31,7 +31,9 @@ project=args[3]
 method=args[4]
 sample_batch <- args[5]
 resset <- args[6]
-dimset=50
+dimset=args[7]
+#filter <- "noDEX"
+filter <- "CTRLonly" #ALOFT used
 
 #uncoment this section if no longer loading in eigenvec pc file (contains all cov info already)
 #cov_file=args[2]
@@ -45,11 +47,16 @@ dimset=50
 #if(!is.na(args[3])){
 #  exp <- exp %>% dplyr::filter(Batch %in% samples$Batch)
 #}
-
+#all treat folders
 outFolder=paste0(base,method,"_pseudobulk_ctrl/")
 #for resolution 0.2 and including V2 chem
 outFolder=paste0(outFolder,"lessfilt/")
 outdir=paste0(base,"5b_IdenCelltype_",method,"/")
+
+#ctrl only folders
+outFolder=paste0(base,method,"_pseudobulk_ctrl/",filter,"/")
+outdir=paste0(base,"5b_IdenCelltype_",method,"/",filter,"/")
+
 
 #outFolder=paste0(outFolder,"dim13res0.3/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
@@ -131,7 +138,7 @@ geneIDs.female <- subset(geneIDs, chr=="X")
 u_eigenvec2 <- merge(sc@meta.data[,c("Sample_ID","BATCH")],unique(eigenvec2[,-2]),by.x=c("Sample_ID","BATCH"),by.y=c("Sample_ID","Batch2"))
 u_eigenvec2 <- u_eigenvec2 %>%
   dplyr::select(Sample_ID, everything())
-#fwrite(u_eigenvec2, sep='\t', quote=F, row.names=F, col.names=T, file="/rs/rs_grp_scaloft/scALOFT_2024/covariates/eigenvec2_u.txt")
+fwrite(u_eigenvec2, sep='\t', quote=F, row.names=F, col.names=T, file=paste0("/rs/rs_grp_scaloft/scALOFT_2024/covariates/",filter,".eigenvec2_u.txt"))
 #u_eigenvec2[u_eigenvec2$Sample_ID=="AL-103",c("Sample_ID","Wave","SCAIP1_6","SCAIP7_18")]
 
 #from https://www.biostars.org/p/9482789/
@@ -145,6 +152,17 @@ sc@meta.data$orig.ident <- "scaloft_comb"
 #check wavefilt worked:
 #unique(sc@meta.data[sc@meta.data$Sample_ID=="AL-030","Wave"]) #should be the data from wave B1
 #unique(sc@meta.data[sc@meta.data$Sample_ID=="AL-103",c("Sample_ID","Wave","SCAIP1_6","SCAIP7_18")])
+fwrite(sc@meta.data, file=paste0(outFolder,"scmetadata_allind.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
+sc_genesdf <- ldply(lapply(unique(sc@meta.data$letter_clusters),function(c){
+    cat("running",c,"\n")
+    sc_c <- subset(sc, subset=letter_clusters==c)
+    sc_genes <- data.frame(cluster=c,genes=rownames(sc[["RNA"]]))
+    rm(sc_c)
+    gc()
+    return(sc_genes)
+}),data.frame)
+    fwrite(sc_genesdf, file=paste0(outFolder,"scmetadata_allgenes.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
 
 #subset for 20cell count filt (just cell/ind)
 nind <- ddply(sc@meta.data, c("letter_clusters"), plyr::summarize,
@@ -281,6 +299,18 @@ sc[["sex_male"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc
 sc[["sex_female"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc) %in% geneIDs.female$symbol])
 #sc@meta.data <- transform(sc@meta.data, SCAIP1_6=ifelse(is.na(SCAIP1_6),0,SCAIP1_6)) #weird case where some are NA ... Ali not sure why
 
+fwrite(sc@meta.data, file=paste0(outFolder,"scmetadata_bticfilt.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
+sc_genesdf <- ldply(lapply(unique(sc@meta.data$letter_clusters),function(c){
+    cat("running",c,"\n")
+    sc_c <- subset(sc, subset=letter_clusters==c)
+    sc_genes <- data.frame(cluster=c,genes=rownames(sc[["RNA"]]))
+    rm(sc_c)
+    gc()
+    return(sc_genes)
+}),data.frame)
+    fwrite(sc_genesdf, file=paste0(outFolder,"scmetadata_bticfiltgenes.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
 opfn <- paste0(outFolder,project,".",resset,".",dimset,".wavefilt.bticfilt.seurat.RDS")
 saveRDS(sc, file=opfn)
 
@@ -396,7 +426,7 @@ length(which(cellcount$Freq<100))
 
 
 cellcount <- as.data.frame(table(sc@meta.data$letter_clusters, sc@meta.data$orig.ident))
-lowcell <- subset(cellcount, Freq<3000)
+lowcell <- subset(cellcount, Freq<3000) #had it at 3k, checking if I can use 1k -- 1k not good - 1sample/batch error running combat
 #basded on this should remove C11 as well -- holding off for now
 if(dim(lowcell)[1]==0){cat( "no low cell counts")}else{sc <-subset(x = sc, subset = letter_clusters %in% unique(lowcell$Var1), invert = TRUE)}
 # [1] C12 C13 C14 C15 C16 C17 C18 C19 C20 C21 C22 C23 C24
@@ -489,7 +519,7 @@ metadata_ls_XY <- lapply(counts_ls_XY, function(i){
     df$BATCH  <- tstrsplit(df$cluster_sample_id, "_")[[2]]
     df$Sample_ID  <- tstrsplit(df$cluster_sample_id, "_")[[3]]
     df$treats  <- tstrsplit(df$cluster_sample_id, "_")[[4]]
-    test <- metadata %>% dplyr::select(-c(sex_male,sex_female,orig.ident,NEW_BARCODE,percent.mt,nCount_RNA,nFeature_RNA,NUM.READS,NUM.SNPS,RNA_snn_res.0.2))
+    test <- metadata %>% dplyr::select(-c(sex_male,sex_female,orig.ident,NEW_BARCODE,percent.mt,nCount_RNA,nFeature_RNA,NUM.READS,NUM.SNPS))
     #need to remove all RNA_snn_res columns so one per each resolution
     test <- dplyr::select(test, -contains("RNA_snn_res"))
     #test <- test %>% dplyr::select(-c(RNA_snn_res.0.3,RNA_snn_res.0.4))
@@ -505,7 +535,7 @@ metadata_ls_XY <- lapply(counts_ls_XY, function(i){
 
 all(names(counts_ls_XY) == names(metadata_ls_XY))
 
-opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.icfilt.plusXY.RData")
+opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.bticfilt.plusXY.RData")
 save(counts_ls_XY,metadata_ls_XY, file=opfn)
 
 counts_ls <- lapply(unique(summed$letter_clusters), function(i){
@@ -544,7 +574,7 @@ metadata_ls <- lapply(counts_ls, function(i){
     df$BATCH  <- tstrsplit(df$cluster_sample_id, "_")[[2]]
     df$Sample_ID  <- tstrsplit(df$cluster_sample_id, "_")[[3]]
     df$treats  <- tstrsplit(df$cluster_sample_id, "_")[[4]]
-    test <- metadata %>% dplyr::select(-c(sex_male,sex_female,orig.ident,NEW_BARCODE,percent.mt,nCount_RNA,nFeature_RNA,NUM.READS,NUM.SNPS,RNA_snn_res.0.2))
+    test <- metadata %>% dplyr::select(-c(sex_male,sex_female,orig.ident,NEW_BARCODE,percent.mt,nCount_RNA,nFeature_RNA,NUM.READS,NUM.SNPS))
     #need to remove all RNA_snn_res columns so one per each resolution
     test <- dplyr::select(test, -contains("RNA_snn_res"))
     #test <- test %>% dplyr::select(-c(RNA_snn_res.0.3,RNA_snn_res.0.4))
@@ -560,7 +590,7 @@ metadata_ls <- lapply(counts_ls, function(i){
 
 all(names(counts_ls) == names(metadata_ls))
 
-opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.icfilt.RData")
+opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.bticfilt.RData")
 save(counts_ls,metadata_ls, file=opfn)
 
 load(opfn)
@@ -574,8 +604,9 @@ cluster_celltype <- ldply(lapply(metadata_ls,function(i){
 }),data.frame)[,-1]
 fwrite(cluster_celltype, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,project,".",resset,".",dimset,".cluster_celltype.txt"))
 
-combatrun="income_PCs_sex_age_and_treats_adjusted"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/cell20filt/")
+#combatrun="income_PCs_sex_age_and_treats_adjusted"
+combatrun="income_PCs_sex_age_adjusted" #CTRL only doesnt need treatment
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/",filter,"/")
 if (!file.exists(baseoutFolder)) dir.create(baseoutFolder, showWarnings=F)
 if (!file.exists(paste0(baseoutFolder,"figures/"))) dir.create(paste0(baseoutFolder,"figures/"), showWarnings=F)
 
@@ -588,14 +619,17 @@ mclapply(names(counts_ls), function(cluster){
     cluster_metadata <- data.frame(cluster_metadata_sce)
     #highcell <- cluster_metadata_bf[cluster_metadata_bf$cell_count>=20,c("comb","letter_clusters","cell_count")]
     #cluster_metadata <- cluster_metadata_bf[rownames(cluster_metadata_bf) %in% rownames(highcell),]
-    x <- subset(as.data.frame(table(cluster_metadata$BATCH)),Freq>1)
-    cluster_metadata <- subset(cluster_metadata,BATCH %in% unique(x$Var1))
-    cluster_metadata_var <- unique(cluster_metadata[,c("Sample_ID","BATCH","treats","Sex","cage1","genPC1","genPC2","genPC3","pincme")])
+    #cluster_metadata_var <- unique(cluster_metadata[,c("Sample_ID","BATCH","treats","Sex","cage1","genPC1","genPC2","genPC3","pincme")])
+    cluster_metadata_var <- unique(cluster_metadata[,c("Sample_ID","BATCH","Sex","cage1","genPC1","genPC2","genPC3","pincme")]) #CTRL only doesnt need treat
     cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
+    x <- subset(as.data.frame(table(cluster_metadata_var$BATCH)),Freq>1)
+    cluster_metadata_var <- subset(cluster_metadata_var,BATCH %in% unique(x$Var1))
 
     cluster_counts_t <- cluster_counts[,which(colnames(cluster_counts) %in% rownames(cluster_metadata_var))]
     all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
-    adjusted <- ComBat_seq(cluster_counts_t, batch=cluster_metadata_var$BATCH, group=NULL, covar_mod=cluster_metadata_var[,c("treats","Sex","cage1","genPC1","genPC2","genPC3","pincme")])
+    #adjusted <- ComBat_seq(cluster_counts_t, batch=cluster_metadata_var$BATCH, group=NULL, covar_mod=cluster_metadata_var[,c("treats","Sex","cage1","genPC1","genPC2","genPC3","pincme")])
+    adjusted <- ComBat_seq(cluster_counts_t, batch=cluster_metadata_var$BATCH, group=NULL, covar_mod=cluster_metadata_var[,c("Sex","cage1","genPC1","genPC2","genPC3","pincme")])#CTRL only doesnt need treat
+
     #cat(length(rownames(adjusted)),"\n")    
     opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
     save(adjusted, file=opfn)
@@ -605,19 +639,23 @@ genestoremove <- ldply(lapply(names(counts_ls), function(cluster){
     opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
     load(opfn)
 max=unique(rownames(which(adjusted >= .Machine$integer.max, arr.ind = TRUE)))
-return(data.frame(genes=max))
+if(is.null(max)){
+    max=NA
+}
+return(data.frame(clus=cluster,genes=max))
 }),data.frame)
-genestoremove
+genestoremove #35
 #none so move on
 
 #treatment results lps v ctrl
-combatrun="income_PCs_sex_age_and_treats_adjusted"
-run="income_PCs_sex_age_and_treats_COMBAT_treatment"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/")
+#combatrun="income_PCs_sex_age_and_treats_adjusted"
+combatrun="income_PCs_sex_age_adjusted" #CTRL only doesnt need treatment
+#run="income_PCs_sex_age_and_treats_COMBAT_treatment"
+run="income_PCs_sex_age_COMBAT_treatment" #CTRL only doesnt need treatment
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/",filter,"/")
 outFolder=paste0(baseoutFolder,run,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 if (!file.exists(paste0(outFolder,"stats/"))) dir.create(paste0(outFolder,"stats/"), showWarnings=F)
-if (!file.exists(paste0(outFolder,"sigDEGs/"))) dir.create(paste0(outFolder,"sigDEGs/"), showWarnings=F)
 if (!file.exists(paste0(outFolder,"deseqres/"))) dir.create(paste0(outFolder,"deseqres/"), showWarnings=F)
 if (!file.exists(paste0(outFolder,"figures/"))) dir.create(paste0(outFolder,"figures/"), showWarnings=F)
 
@@ -796,16 +834,19 @@ cluster=clusters[1]
     dev.off()
 #}
 
-combatrun="income_PCs_sex_age_and_treats_adjusted"
+combatrun="income_PCs_sex_age_adjusted"
+run="income_PCs_sex_age_adjusted_withWave"
+#combatrun="income_PCs_sex_age_and_treats_adjusted"
 #run="income_PCs_sex_age_and_treats_adjusted_withWave_poscount"
-run="income_PCs_sex_age_and_treats_adjusted_withWave"
+#run="income_PCs_sex_age_and_treats_adjusted_withWave"
 #combatrun="PCs_sex_age_and_treats_adjusted_wavefilt"
 #run="PCs_sex_age_and_treats_adjusted_withWave"
 #combatrun="SES_PCs_sex_age_and_treats_adjusted"
 #run="SES_PCs_sex_age_and_treats_adjusted_withWave"
 #run="sex_age_and_treats_adjusted_wavefilt"
 #run="SES_PCs_sex_age_and_treats_adjusted"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/")
+#baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/")
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/",filter,"/")
 combatfolder=paste0(baseoutFolder,combatrun,"/")
 outFolder=paste0(baseoutFolder,run,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
