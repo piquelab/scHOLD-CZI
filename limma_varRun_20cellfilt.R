@@ -2,6 +2,7 @@ library(data.table)
 library(plyr);library(dplyr)
 library("limma")
 library(edgeR)
+library(ggplot2)
 library(flextable)
 library(ftExtra)
 library(rlist)
@@ -16,8 +17,10 @@ mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
 genes <- biomaRt::getBM(attributes = c("hgnc_symbol", "chromosome_name","transcript_biotype"), filters = c("transcript_biotype","chromosome_name"),values = list("protein_coding",1:22), mart = mart)
 
 
-job="ALOFT"
-#job="CZI"
+#job="ALOFT"
+job="CZI"
+proteincoding=FALSE
+
 
 if(job=="ALOFT"){
 args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","/rs/rs_grp_scaloft/scALOFT_2024/covariates/ALOFT_covariate_issues_fixed_uniq-n265_psesl-a2_fixed_12-19-2024.txt","ALL","demux","/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt",0.2) 
@@ -51,7 +54,7 @@ allvars <- psychvarstorun[c(1:length(psychvarstorun))][!psychvarstorun[c(1:lengt
 firstrunvars <- allvars[c(1:10)]
 secondrunvars <- c(allvars[c(1:20)],"cage1")
 } else if(job=="CZI"){
-args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",11,0.2) #for testing
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",13,0.15) #for testing
 base <- args[1]
 cov_file=fread(args[2]) #this is the psych cov file
 project=args[3]
@@ -59,7 +62,7 @@ method=args[4]
 dimset=args[5]
 resset=args[6]
 contrastdf <- data.frame(control=c("RNA-CTRL","RNA-LPS"),treatment=c("RNA-LPS","RNA-LPS-DEX"))
-outFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/")
+outFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/")
 figuredir=paste0(outFolder,"figures/")
 #read in genotype PC (run only on current samples. if adding data, since I made the file 03/20/24 remake using plink_to_PC.R)
 leadvar <- fread("/rs/rs_grp_schold/covariates/other_covariates/HOLD LEAD 5.27.25.csv")
@@ -72,14 +75,18 @@ notrun_var <- c("DSES_01","DSES_03","PWaist","PHip","SNI_NoP","age","sex","sex_a
 colnumuotovar <- grep("czi_exp",colnames(eigenvec2))+1
 psychvarstorun <- eigenvec2[,colnumuotovar:length(colnames(eigenvec2))]
 psychvarstorun <- colnames(psychvarstorun)[!colnames(psychvarstorun) %in% notrun_var]
-
-#opfn <- paste0(base,method,"_pseudobulk_ctrl/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
-opfn <- paste0(base,method,"_pseudobulk_ctrl/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt_proteincoding.RData")
+if(proteincoding){
+#baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/cell20filt_proteincoding/")
+opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt_proteincoding.RData")
 load(opfn)
+} else{
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/")
+opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
+load(opfn)
+}
+#counts_ls$C6 <- NULL
+#metadata_ls$C6 <- NULL
 combatrun="SES_PCs_sex_age_and_treats_adjusted_generem"
-#baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/cell20filt/")
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/cell20filt_proteincoding/")
-
 old_cytokines <- psychvarstorun[c(8,14:24)] #old cytokines
 psychvarstorun <- psychvarstorun[!psychvarstorun %in% old_cytokines]
 firstrunvars=c("SES","pr_comp","ISEL_Mean","PSS_all_mean","BPd_avg","Chol_HDL","Chol_LDL","nii_mean","SNI_NumPeople_r","BPs_avg","DED_all_mean","LogCRP","HVS_mean","LivingAlone")
@@ -97,8 +104,7 @@ treatmentsfirst=c("RNA-CTRL","RNA-LPS")
 allPFAS <- psychvarstorun[c(33:53)]
 combPFAS <- allPFAS[seq(1,21,3)]
 PFASvars <- c(allPFAS,"sumPFAS","log_sumPFAS")
-allvars <- c(reordered_psychvarstorun[c(1:82)],"age","Lead","sumPFAS","log_sumPFAS")
-clusters=c("C0", "C1", "C2", "C3", "C4", "C5", "C6")
+allvars <- c(reordered_psychvarstorun[c(1:82)],"age","Lead","sumPFAS","log_sumPFAS",zcytokines)
 }
 
 baserun="limma_var"
@@ -108,9 +114,8 @@ cpmqqnorm=FALSE
 iselcov=FALSE
 WHRcov=FALSE
 runPFAS=TRUE
-proteincoding=FALSE
-proteincoding33=FALSE
-proteincoding50=FALSE
+#proteincoding33=FALSE
+#proteincoding50=FALSE
 thirtythree=FALSE
 fifty=FALSE
 if(voom ){
@@ -125,15 +130,6 @@ if(iselcov){
 }
 if(WHRcov){
     run=paste0(run,"_WHRcov")
-}
-if(proteincoding){
-    run=paste0(run,"_proteincoding")
-}
-if(proteincoding33){
-    run=paste0(run,"_proteincoding33")
-}
-if(proteincoding50){
-    run=paste0(run,"_proteincoding50")
 }
 if(thirtythree){
     run=paste0(run,"_33")
@@ -160,11 +156,11 @@ lapply(names(counts_ls)[c(1:length(names(counts_ls)))],function(c){
     cluster_metadata_sce <- metadata_ls[[c]]
     cluster_metadata <- data.frame(cluster_metadata_sce)
     cluster_metadata <- transform(cluster_metadata, treats=as.factor(treats),rowid=rownames(cluster_metadata))
-    if(job=="CZI"){
-    cluster_metadataL <- left_join(cluster_metadata,unique(eigenvec2[,c("Sample_ID","Lead","WHR")]),by="Sample_ID")
-    rownames(cluster_metadataL) <- cluster_metadataL$rowid
-    cluster_metadata <- cluster_metadataL
-    }
+    #if(job=="CZI"){
+    #cluster_metadataL <- left_join(cluster_metadata,unique(eigenvec2[,c("Sample_ID","Lead","WHR")]),by="Sample_ID")
+    #rownames(cluster_metadataL) <- cluster_metadataL$rowid
+    #cluster_metadata <- cluster_metadataL
+    #}
     opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",c,".",combatrun,".RData")
     load(opfn)
     if(job=="ALOFT"){
@@ -185,13 +181,19 @@ lapply(names(counts_ls)[c(1:length(names(counts_ls)))],function(c){
         cluster_metadata <- as.data.frame(cluster_metadata_pfas)
         cluster_metadata <- transform(cluster_metadata, log_sumPFAS=log2(sumPFAS+1))
         rownames(cluster_metadata) <- cluster_metadata$rowid
-        #adjusted_countsP <- adjusted_counts[rownames(adjusted_counts) %in% genes$hgnc_symbol, ]
-        filtered_data <- adjusted_counts > 0 
-        keep <- rowSums(filtered_data,na.rm=T) >= (ncol(adjusted_counts) / 2) #filter to keep genes expressed in 33% of samples
-        adjusted_counts <- unlist(adjusted_counts[keep, ])
-        }
     }
-    lapply(allPFAS,function(var){
+    }
+    #adjusted_countsP <- adjusted_counts[rownames(adjusted_counts) %in% genes$hgnc_symbol, ]
+    filtered_data <- adjusted_counts > 0 
+    if( thirtythree){
+    keep <- rowSums(filtered_data,na.rm=T) >= (ncol(adjusted_counts) / 3) #filter to keep genes expressed in 33% of samples
+    adjusted_counts <- unlist(adjusted_counts[keep, ])
+    }
+    if( fifty){
+    keep <- rowSums(filtered_data,na.rm=T) >= (ncol(adjusted_counts) / 2) #filter to keep genes expressed in 33% of samples
+    adjusted_counts <- unlist(adjusted_counts[keep, ])
+    }
+    lapply(allvars,function(var){
         #var="FCDEM_11_13"
         if(var=="factor_HS_CRP"){
         cluster_metadata <- subset(cluster_metadata, HS_CRP<10) #advised to remove as likely an infection
@@ -272,6 +274,9 @@ lapply(names(counts_ls)[c(1:length(names(counts_ls)))],function(c){
             colnames(mat_qnorm) <- colnames(cpm)
             fit <- lmFit(mat_qnorm, design)
             }
+            opfn <- paste0(outFolder,"limma_fit-",i,"-",var,c,".",run,".RData")
+            save(fit, file=opfn)
+
             fit2 <- eBayes(fit)
             tt <- topTable(fit2, n = Inf, adjust.method = "BH", coef = colnames(fit2)[grepl("varcol", colnames(fit2)) & !grepl("treats", colnames(fit2))])
             tt <- transform(tt, cluster=c, treat=i, variable=var, identifier=rownames(tt))
@@ -291,11 +296,6 @@ lapply(names(counts_ls)[c(1:length(names(counts_ls)))],function(c){
 })
 
 #for sex separate variables (ie/puberty vars in aloft)
-if (!file.exists(paste0(outFolder,"summary.sexspecific.",run,".txt"))) {
-    cat("making file \n")
-table <- data.frame(cluster=NA, treat=NA, variable=NA, Sex=NA, number_individuals=NA,gene_number=NA,tested_genes=NA,varDEGs=NA)
-fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"summary.sexspecific.",run,".txt"))
-}
 if(job=="ALOFT"){
 lapply(names(counts_ls),function(c){
     #c="C0"
@@ -319,8 +319,89 @@ lapply(names(counts_ls),function(c){
         cat("running ", c, s, var, "\n")
         lapply(treatmentsfirst,function(i){
             #i=treatmentsfirst[1]
-            table <- fread(paste0(outFolder,"summary.sexspecific.",run,".txt"))
-            currenttable <- subset(table, variable==var & treat==i & cluster==c & Sex==s)
+            table <- fread(paste0(outFolder,"summary.",run,".txt"))
+            currenttable <- subset(table, variable==var & treat==i & cluster==c)
+            #this runs only if the summary table doesnt have it already
+            if(dim(currenttable)[1]<1){
+                cat("running",i,"\n")
+            cluster_metadata_t <- subset(cluster_metadata, treats==i & Sex==s)
+            cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","Wave","genPC1","genPC2","genPC3",var)]
+            cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
+            cluster_counts_t <- adjusted_counts[,which(colnames(adjusted_counts) %in% rownames(cluster_metadata_var))]
+            cv_d <- cluster_metadata_var[which(rownames(cluster_metadata_var) %in% colnames(cluster_counts_t)),]
+            ## Normalization of data
+            # make edgeR object
+            dge <- DGEList(counts=cluster_counts_t)
+            #Transform counts to counts per million
+            dge <- calcNormFactors(dge)
+            varcol=cv_d[,var]
+            design <- model.matrix(~ 0 + as.numeric(varcol) + factor(cv_d$Wave) + as.numeric(cv_d$genPC1) + as.numeric(cv_d$genPC2) +as.numeric(cv_d$genPC3))
+            if(log2cpm){
+            cpm <- log2(cpm(dge)+1)
+            rownames(cpm) <- rownames(cluster_counts_t)
+            fit <- lmFit(cpm, design)
+            }
+            if(voom){
+            v_e <- voom(dge, design, plot=FALSE, normalize.method="quantile")
+            #genes_normed_baseline <- data.frame(v_e$E)
+            fit <- lmFit(v_e, design)
+            }
+            if(cpmqqnorm){
+            cpm <- cpm(dge)
+            rownames(cpm) <- rownames(cluster_counts_t)
+            mat_qnorm <- t(apply(cpm,1,function(x){qqnorm(rank(x, ties.method = "random"), plot = F)$x}))
+            colnames(mat_qnorm) <- colnames(cpm)
+            fit <- lmFit(mat_qnorm, design)
+            }
+            opfn <- paste0(outFolder,project,".",resset,".",dimset,".limma_fit-",i,"-",var,c,".",run,".RData")
+            save(fit, file=opfn)
+
+            fit2 <- eBayes(fit)
+            tt <- topTable(fit2, n = Inf, adjust.method = "BH", coef = colnames(fit2)[grepl("varcol", colnames(fit2)) & !grepl("treats", colnames(fit2))])
+            tt <- transform(tt, cluster=c, treat=i, variable=var, identifier=rownames(tt))
+            vardf <- tt[,c("cluster","treat","variable","identifier","logFC","AveExpr","t","P.Value","adj.P.Val","B")]
+            fwrite(vardf, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"limmares/",c,".",i,".",var,".",run,".txt"))
+            table <- data.frame(cluster=c, treat=i, variable=var)
+            table$number_individuals <- paste(length(unique(cluster_metadata_var$Sample_ID)))
+            table$gene_number <- paste(nrow(cluster_counts_t))
+            table$tested_genes <- nrow(subset(vardf, !is.na(adj.P.Val)))
+            table$varDEGs=nrow(subset(vardf, adj.P.Val<0.1))
+            fwrite(table, sep='\t', quote=F, row.names=F, col.names=F, append=T, paste0(outFolder,"summary.",run,".txt"))
+            rm(currenttable,cluster_metadata_t,cluster_metadata_var,cv_d,dge,cpm,fit,fit2,tt,vardf,table)
+            gc(reset=T)
+            } #currentable if
+        }) #treatment loop
+    }) #var loop
+    } #sex loop
+}) #cluster loop
+#want to check age effects separately in male/female
+#create column headers for summary table to append to during loop -- do just once
+for(s in c("male","female")){
+if (!file.exists(paste0(outFolder,"summary.",s, "." ,run,".txt"))) {
+    cat("making file \n")
+table <- data.frame(cluster=NA, treat=NA, variable=NA,sex=NA, number_individuals=NA,gene_number=NA,tested_genes=NA,varDEGs=NA)
+fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"summary.",s, "." ,run,".txt"))
+}
+}
+lapply(names(counts_ls),function(c){
+    #c="C0"
+    cluster_metadata_sce <- metadata_ls[[c]]
+    cluster_metadata <- data.frame(cluster_metadata_sce)
+    cluster_metadata <- transform(cluster_metadata, treats=as.factor(treats),rowid=rownames(cluster_metadata))
+    opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",c,".",combatrun,".RData")
+    load(opfn)
+    adjusted_counts <- adjusted
+    cluster_metadata <- transform(cluster_metadata, Sex=as.factor(ifelse(Sex==0,"female","male")))
+    if(all(c("male","female") %in% levels(cluster_metadata$Sex))){
+        cluster_metadata <- within(cluster_metadata, Sex <- relevel(Sex, ref = "male"))
+    }
+    for(s in c("male","female")){
+    var="cage1"
+        cat("running ", c, s, var, "\n")
+        lapply(treatmentsfirst,function(i){
+            #i=treatmentsfirst[1]
+            table <- fread(paste0(outFolder,"summary.",s, "." ,run,".txt"))
+            currenttable <- subset(table, variable==var & treat==i & cluster==c)
             #this runs only if the summary table doesnt have it already
             if(dim(currenttable)[1]<1){
                 cat("running",i,"\n")
@@ -355,20 +436,19 @@ lapply(names(counts_ls),function(c){
             }
             fit2 <- eBayes(fit)
             tt <- topTable(fit2, n = Inf, adjust.method = "BH", coef = colnames(fit2)[grepl("varcol", colnames(fit2)) & !grepl("treats", colnames(fit2))])
-            tt <- transform(tt, cluster=c, treat=i, variable=var, identifier=rownames(tt))
+            tt <- transform(tt, cluster=c, treat=i, variable=var, sex=s, identifier=rownames(tt))
             vardf <- tt[,c("cluster","treat","variable","identifier","logFC","AveExpr","t","P.Value","adj.P.Val","B")]
-            fwrite(vardf, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"limmares/",c,".",i,".",var,".",run,".txt"))
-            table <- data.frame(cluster=c, treat=i, variable=var)
+            fwrite(vardf, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"limmares/",c,".",i,".",var,".",s,".",run,".txt"))
+            table <- data.frame(cluster=c, treat=i, variable=var, sex=s)
             table$number_individuals <- paste(length(unique(cluster_metadata_var$Sample_ID)))
             table$gene_number <- paste(nrow(cluster_counts_t))
             table$tested_genes <- nrow(subset(vardf, !is.na(adj.P.Val)))
             table$varDEGs=nrow(subset(vardf, adj.P.Val<0.1))
-            fwrite(table, sep='\t', quote=F, row.names=F, col.names=F, append=T, paste0(outFolder,"summary.sexspecific.",run,".txt"))
+            fwrite(table, sep='\t', quote=F, row.names=F, col.names=F, append=T, paste0(outFolder,"summary.",s, "." ,run,".txt"))
             rm(currenttable,cluster_metadata_t,cluster_metadata_var,cv_d,dge,cpm,fit,fit2,tt,vardf,table)
             gc(reset=T)
             } #currentable if
         }) #treatment loop
-    }) #var loop
     } #sex loop
 }) #cluster loop
 } #if job
@@ -377,6 +457,15 @@ lapply(names(counts_ls),function(c){
 var="FCDEM_11_11"
 png(width = 6, height = 6, file=paste0(outFolder,"figures/MDplot_",var,"_C0.png"), pointsize=12, bg = "transparent", canvas = "white", units = "in", res = 500)
 plotMD(fit,coef=1,status=decideTests(fit))
+dev.off()
+
+var="PFOA"
+c="C4"
+i="RNA-CTRL"
+opfn <- paste0(outFolder,"limma_fit-",i,"-",var,c,".",run,".RData")
+load(opfn)
+png(width = 6, height = 6, file=paste0(outFolder,"figures/MDplot_",var,"_",c,".png"), pointsize=12, bg = "transparent", canvas = "white", units = "in", res = 500)
+plotMD(fit,coef=1,status=decideTests(fit),main=paste0(i," ",var," ",c))
 dev.off()
 
 #fwrite(lmcoefs, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"summary.",run,".txt"))
@@ -456,13 +545,13 @@ allvarsdf <- data.frame(variable=c(allvars,PFASvars,"Lead"))
 variables_df <- unique(merge(variables_df,allvarsdf,by="variable",all=T))
 }
 
-varsrun = subset(variables_df, variable %in% c(allPFAS))
+varsrun = subset(variables_df, variable %in% allvars)
 statsfull <- unique(fread(paste0(outFolder,"summary.",run,".txt")))
 
-#to combine cluster output
 lapply(treatmentsfirst, function(i) {
     lapply(varsrun$variable, function(var){
     cat("running",i,var,"\n")
+    if(!file.exists(paste0(outFolder,"limmares.",i,".",var,".",run,".txt"))){
     stats <- subset(statsfull, treat==i & variable==var)
     #ressub <- subset(res, treat==i & variable==var)
     myDir <- paste0(outFolder,"limmares/")
@@ -474,11 +563,12 @@ lapply(treatmentsfirst, function(i) {
     names(ddf) <- c(data_names)
     ressub <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) #recursively merge df from list of df. still not sure what accumulate does
     fwrite(ressub, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"limmares.",i,".",var,".",run,".txt"))
+    }
     })
 })
 
 #to plot
-zoom="allPFAS"
+zoom="allvars"
 lapply(treatmentsfirst, function(i) {
 subvars <- ldply(lapply(varsrun$variable, function(var){
     cat("running",i,var,"\n")
@@ -531,86 +621,50 @@ flextable::save_as_image(
 }
 })
 
-varsrun = subset(variables_df, variable %in% c(puberty))
-statsfull <- unique(fread(paste0(outFolder,"summary.",run,".txt")))
 
-#to combine cluster output
-lapply(treatmentsfirst, function(i) {
-    lapply(varsrun$variable, function(var){
-    cat("running",i,var,"\n")
-    stats <- subset(statsfull, treat==i & variable==var)
-    #ressub <- subset(res, treat==i & variable==var)
-    myDir <- paste0(outFolder,"limmares/")
-    filenames <- list.files(myDir) #file list from directory
-    filenames <- filenames[grepl(paste0(".",i,".",var,".",run,".txt"),filenames)]
-    data_names <- gsub(paste0(".",run,".txt"), "", filenames)
-    for(f in 1:length(filenames)) assign(data_names[f], fread(file.path(myDir, filenames[f]),header = TRUE, sep='\t')) #read in specific files and set the df object names. can dro0p unwanted columns
-    ddf <- lapply(data_names, function(x) get(x)) #grab data from list of df names
-    names(ddf) <- c(data_names)
-    ressub <- as.data.frame(Reduce(function(x, y) rbind(x, y),ddf,accumulate=F)) #recursively merge df from list of df. still not sure what accumulate does
-    fwrite(ressub, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"limmares.",i,".",var,".",run,".txt"))
-    })
-})
+#volcano
+library(EnhancedVolcano)
+var="PFOA"
+c="C4"
+i="RNA-CTRL"
 
-#to plot
-zoom="puberty"
-lapply(treatmentsfirst, function(i) {
-subvars <- ldply(lapply(varsrun$variable, function(var){
-    cat("running",i,var,"\n")
-    stats <- subset(statsfull, treat==i & variable==var)
-    #ressub <- subset(res, treat==i & variable==var)
-    ressub <- fread(paste0(outFolder,"limmares.",i,".",var,".",run,".txt"))
-    #first subset variables that have at least one cluster with 50DEGs
-    if(dim(subset(stats, varDEGs>50))[1]<1){ 
-        cat("not enough DEGs","\n")
-        } else{
-        resshort <- ressub[,c("cluster","identifier")]
-        df <- ddply(resshort, "cluster", plyr::summarize, ngenes=length(unique(identifier)))
-        newls <- lapply(names(counts_ls),function(c){
-            stats_c <- subset(stats,cluster==c)
-            dc <- subset(df, cluster==c)
-            d <- data.frame(numind=stats_c$number_individuals, ngenes=dc$ngenes,sigDEGs=stats_c$varDEGs)
-            colnames(d) <- paste(c,colnames(d),sep=".")
-            return(d)
-            })
-            newls <- newls[sapply(newls, nrow)>0]
-            newtable <- data.frame(variable=var, description=variables_df[variables_df$variable==var,]$description,list.cbind(newls))
-            return(newtable)
-        }
-}),data.frame)
-subvars <- unique(subvars)
-
-if( ncol(subvars) > 0){
-dft <- subvars %>% flextable() %>% span_header()
-dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
-flextable::save_as_image(
-  dft,
-    #path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",run,"PFAS.png"))
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",zoom,".",run,".png"))
-
-degcols <- grep("sigDEGs",colnames(subvars))
-subsubvars <- subvars[,!grepl(paste(c(sapply(strsplit(colnames(subvars[,degcols[ apply(subvars[,degcols],MARGIN=2,FUN=my.max)<50],drop=F]),"[.]"),function(y) y[1]),"NA"),collapse="[.]|"),colnames(subvars))]
-dft <- subsubvars %>% flextable() %>% span_header()
-dft <- align(dft, i = 1, j = NULL, align = "center", part = "header")
-
-flextable::save_as_image(
-  dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",zoom,".",run,".50degs.png"))
-
-subsubvars_degonly <- subsubvars[,!grepl("numind|ngenes",colnames(subsubvars))]
-dft <- subsubvars_degonly %>% flextable() 
-#dft <- align(dft, i = 1, j = NULL, align = "left", part = "body")
-flextable::save_as_image(
-  dft,
-  path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",i,".",zoom,".",run,".ndegonly.png"))
-}
-})
-
+limmares <- fread(paste0(outFolder,"limmares.",i,".",var,".",run,".txt"))
+#for (c in names(counts_ls)){
+    c="C4"
+    cat("running ", c, "\n")
+    sub.table <- subset(limmares, cluster==c)
+    sub.table <- sub.table[order(sub.table$adj.P.Val,-abs(sub.table$logFC)), ]
+    xmax=max(sub.table$logFC)+0.5
+    xmin=min(sub.table$logFC)-0.5
+    topp1 <- min(subset(sub.table, adj.P.Val > quantile(adj.P.Val, prob = 1 -99/100,na.rm=T))$P.Value)
+    tolab <- c(unique(head(sub.table,n=20)$identifier))
+    png(width = 8, height = 8, file=paste0(outFolder,"figures/dge_volcano-",var,"-",i,".",run,"-",c,".png"), pointsize=12, 
+          bg = "transparent", units = "in", res = 1200)
+    p <- EnhancedVolcano(sub.table,
+      lab = sub.table$identifier,
+      x = 'logFC',
+      y = 'P.Value',
+      title=paste0(c),
+      subtitle = NULL,
+      xlim = c(xmin, xmax),
+      pCutoffCol= 'adj.P.Val',
+      pCutoff = 0.1,
+      FCcutoff = 0.5,
+      labSize = 3.0,
+      #pointSize = c(ifelse(sub.table$gene_symbol %in% tolab, 5,1.5)),
+      col=c('black', 'black', 'blue', 'red3'),
+      hline = c(topp1),
+      hlineCol = c('green'),
+      selectLab = tolab,
+      legendPosition = 'none',
+      drawConnectors = TRUE)
+    print(p)
+    dev.off()
+#}
 #compare deseq and limma specific genes
 #C10 PHA cdres condition many sig DEGs for deseq in aloft but none in limma, also small cluster
 #C0 PHA mono_av condition many sig DEGs for limma and none for deseq, also large cluster
 #C11 PHA mono_av condition segDEGs for both deseq and limma, also small cluster
-library(ggplot2)
 library(ggpubr)
 library(scales)
 
@@ -622,7 +676,7 @@ i="PHA"
 } else if (job=="CZI"){
 i=treatmentsfirst[1]
 deseqrun="SES_PCs_sex_age_and_treats_generem"
-deseqoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/cell20filt/",deseqrun,"/")
+deseqoutFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/",deseqrun,"/")
 }
 #res <- fread(paste0(outFolder,"all_limmares.",run,".txt"))
 #names(res)[c(2,3)] <- c("treats","var")
@@ -1086,7 +1140,7 @@ plotDF <- ldply(lapply(treatmentsfirst,function(i){
 var2 <- sort(unique(plotDF$variable))
 varSel2 <- c("sumPFAS","log_sumPFAS")
 #varSel2 <- allPFAS[grep("Log",allPFAS)]
-varSel2 <- "CVDRISK"
+#varSel2 <- "CVDRISK"
 plotDF2 <- plotDF%>%filter(variable%in%varSel2)
 zoom="CVDRISK"
 
@@ -1118,12 +1172,12 @@ library(rlist)
 library(officer)
 #[!psychvarstorun %in% puberty]
  my.max <- function(x) ifelse( !all(is.na(x)), max(x, na.rm=T), NA)
-zoom="PFASvars"
+zoom="Lead"
 statsfull <- unique(fread(paste0(outFolder,"summary.",run,".txt")))
 
 for (i in c(treatmentsfirst)){
 #subvars <- ldply(lapply(c(variables_df$variable), function(var){
-subvars <- ldply(lapply(c(PFASvars), function(v){
+subvars <- ldply(lapply(c("Lead"), function(v){
     cat("running",i,v,"\n")
     stats <- subset(statsfull, treat==i & variable==v)
         limmares <- fread(paste0(outFolder,"limmares.",i,".",v,".",run,".txt"))
@@ -1168,6 +1222,9 @@ subvars <- ldply(lapply(c("Lead"), function(v){
     }
 }),data.frame)
 
+if(dim(subvars)[1]<1){
+    cat("no DEGs>50 \n")
+    } else {
 # Count the number of genes in each category
 data_summary <- ddply(subvars, c("cluster","variable","regulation"),plyr::summarize,
     nDEG=length(regulation))
@@ -1189,4 +1246,5 @@ p <- ggplot(data_summary, aes(x = cluster, y = nDEG, fill = regulation)) +
       bg = "transparent", canvas = "white", units = "in", res = 600)
 print(p)
 dev.off()
+}
 }
