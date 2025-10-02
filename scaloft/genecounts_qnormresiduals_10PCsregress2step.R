@@ -14,18 +14,23 @@ if(job=="ALOFT"){
 base="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/"
 method="demux"
 project="ALL"
-resset=0.2
+#resset=0.2 #old
+resset=0.1
 dimset=50
-combatrun="income_PCs_sex_age_and_treats_adjusted"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/cell20filt/")
-opfn <- paste0(base,method,"_pseudobulk_ctrl/lessfilt/",project,".",resset,".",dimset,".DESeq_countlists_wavefilt.icfilt.RData")
-#opfn <- paste0(base,method,"_pseudobulk_ctrl/lessfilt/",project,".",resset,".",dimset,".DESeq_countlists_wavefilt.bticfilt.RData")
+filter <- "CTRLonly" #ALOFT used
+
+#combatrun="income_PCs_sex_age_and_treats_adjusted"
+#baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/cell20filt/")
+#opfn <- paste0(base,method,"_pseudobulk_ctrl/lessfilt/",project,".",resset,".",dimset,".DESeq_countlists_wavefilt.icfilt.RData")
+combatrun="income_PCs_sex_age_adjusted"
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/",filter,"/")
+opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.bticfilt.RData")
 load(opfn)
-outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/"
+outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals_ctrlonly/"
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 
 # load annotation
-u_eigenvec2 <- fread("/rs/rs_grp_scaloft/scALOFT_2024/covariates/eigenvec2_u.txt")
+u_eigenvec2 <- fread(paste0("/rs/rs_grp_scaloft/scALOFT_2024/covariates/",filter,".eigenvec2_u.txt"))
 treatments=c("CTRL","LPS","PHA","PHA-DEX")
 
 } else if(job=="CZI"){
@@ -86,7 +91,7 @@ geneIDs <- transform(geneIDs, strand_start=ifelse(strand=="+",start,end),strand_
 geneIDs <- subset(geneIDs, chr %in% c(1:22))
 
 lapply(names(counts_ls),function(clus){
-  for (i in treatments){
+  for (i in treatments[1]){
     cluster_metadata_sce <- metadata_ls[[clus]]
     cluster_metadata <- data.frame(cluster_metadata_sce)
     cluster_metadata_t <- subset(cluster_metadata, treats==i)
@@ -292,8 +297,9 @@ samples <- colnames(Res)
 
 covs <- as_tibble(t(mypcs))
 #order to vcf
-covsord <- covs[,match(vcfind, colnames(covs)) ]
-cvs <- cbind(id=colnames(mypcs),covsord)
+#covsord <- covs[,match(vcfind, colnames(covs)) ]
+#cvs <- cbind(id=colnames(mypcs),covsord)
+cvs <- cbind(id=colnames(mypcs),covs)
 
 fwrite(cvs, sep='\t', quote=F, row.names=F, col.names=T, file=paste0(outFolder,"covariates/PCcovariates_",method,".",cluster,".",treat,".txt"))
 fwrite(cvs, sep='\t', quote=F, row.names=F, col.names=F, file=paste0(outFolder,"covariates/PCcovariates_",method,"nohead.",cluster,".",treat,".txt"))
@@ -313,8 +319,8 @@ method="voom"
 #ALOFT
 for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
   for i in $(seq 1 20); do 
-  if [ -f /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/covariates/PCcovariates_${method}.$cluster.$treat.txt ]; then 
-  head -n $(($i+1)) /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/covariates/PCcovariates_${method}.$cluster.$treat.txt > /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/covariates/$cluster.$treat.PC1-$i.covariates_${method}.txt
+  if [ -f /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals_ctrlonly/covariates/PCcovariates_${method}.$cluster.$treat.txt ]; then 
+  head -n $(($i+1)) /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals_ctrlonly/covariates/PCcovariates_${method}.$cluster.$treat.txt > /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals_ctrlonly/covariates/$cluster.$treat.PC1-$i.covariates_${method}.txt
   fi
   done
 done
@@ -376,9 +382,9 @@ module load bedtools/2.25.0
 method="voom"
 #ALOFT
 treat="CTRL"
-for cluster in C0 C1 C10 C11 C2 C3 C4 C5 C6 C7 C8 C9;do
+for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/CTRLonly/ALL.0.1.50.cluster_celltype.txt`;do
 for pcnum in $(seq 1 20); do
-i=`ls -1 /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/phenotypes.$cluster.$treat.PC1-$pcnum.residuals_${method}_PCregress2step.bed | grep -v 'sort'`
+i=`ls -1 /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals_ctrlonly/phenotypes.$cluster.$treat.PC1-$pcnum.residuals_${method}_PCregress2step.bed | grep -v 'sort'`
   echo "running " $i
   #less $i | awk 'NR == 1{print "#"$0;next}; NR > 1 {print $0 | "sortBed -i"}' > ${i%.*}.sort.bed
   less $i | awk 'NR == 1{print "#"$0;next}; NR > 1 {print $0 | "sort -k1,1 -k2,2n "}' > ${i%.*}.sort.bed
