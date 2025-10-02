@@ -21,7 +21,7 @@ fi
 #my residuals were not designed for tensorqtl, this reformats it
 R
 library(data.table)
-library(plyr)
+library(plyr);library(dplyr)
 library("AnnotationHub")
 ah <- AnnotationHub()
 if(length(ah["AH98047"]) == 0) {
@@ -44,14 +44,17 @@ geneIDs <- subset(geneIDs, chr %in% c(1:22))
 base="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/"
 method="demux"
 project="ALL"
-resset=0.2
+resset=0.1 #0.2 old
 dimset=50
-combatrun="income_PCs_sex_age_and_treats_adjusted"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/cell20filt/")
-opfn <- paste0(base,method,"_pseudobulk_ctrl/lessfilt/",project,".",resset,".",dimset,".DESeq_countlists_wavefilt.icfilt.RData")
+combatrun="income_PCs_sex_age_adjusted"
+#combatrun="income_PCs_sex_age_and_treats_adjusted" #old
+#baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/cell20filt/") #old
+filter <- "CTRLonly" #ALOFT used
+outFolder=paste0(base,method,"_pseudobulk_ctrl/",filter,"/")
+opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.bticfilt.RData")
 #opfn <- paste0(base,method,"_pseudobulk_ctrl/lessfilt/",project,".",resset,".",dimset,".DESeq_countlists_wavefilt.bticfilt.RData")
 load(opfn)
-outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/"
+outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals_ctrlonly/"
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 treat="CTRL"
 method="voom"
@@ -81,8 +84,8 @@ module load bedtools/2.25.0
 method="voom"
 #ALOFT
 treat="CTRL"
-for cluster in C0 C1 C10 C11 C2 C3 C4 C5 C6 C7 C8 C9;do
-i=`ls -1 /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/phenotypes.$cluster.$treat.residuals_${method}.bed | grep -v 'sort'`
+for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/CTRLonly/ALL.0.1.50.cluster_celltype.txt`;do
+i=`ls -1 /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals_ctrlonly/phenotypes.$cluster.$treat.residuals_${method}.bed | grep -v 'sort'`
   echo "running " $i
   #less $i | awk 'NR == 1{print "#"$0;next}; NR > 1 {print $0 | "sortBed -i"}' > ${i%.*}.sort.bed
   less $i | awk 'NR == 1{print "#"$0;next}; NR > 1 {print $0 | "sort -k1,1 -k2,2n "}' > ${i%.*}.sort.bed
@@ -207,13 +210,13 @@ done
 
 #HPC run
 data_path="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis"
-out_path="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output/"
+out_path="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output_CTRLonly/"
 cluster="C0"
 treat="CTRL"
 PC=2
 mkdir -p ${out_path}
-for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
-#for cluster in C0 C4; do
+#for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do #old
+for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/CTRLonly/ALL.0.1.50.cluster_celltype.txt`;do
 for chr in {1..22};do
   for PC in {1..10}; do
   njobs=`squeue -u fh8591 -r| wc -l`
@@ -370,7 +373,7 @@ treat="CTRL"
 chr=1
 var="cditsm"
 cluster="C9"
-PC=`grep $cluster ${outFolder}/bestPCs_table.txt | cut -f2`
+PC=`grep -w $cluster ${outFolder}/bestPCs_table.txt | cut -f2`
 geno="${data_path}/residuals/vcf_plink/ref.ac1.${cluster}.${treat}.${chr}" # prefix for plink triplet files
 out_prefix="${cluster}_${treat}_${chr}_${var}_tensorqtlint" # prefix for output file
 pheno=${data_path}/residuals/phenotypes.$cluster.$treat.${var}.residuals_voom.eQTLonly.sort.bed.gz
@@ -416,7 +419,7 @@ out_path="${outFolder}/interaction"
 treat="CTRL"
 
 for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
-PC=`grep $cluster ${outFolder}/bestPCs_table.txt | cut -f2`
+PC=`grep -w $cluster ${outFolder}/bestPCs_table.txt | cut -f2`
 for var in `cut -f1 ${data_path}/variables_dftorun.txt`; do
 #for chr in {1..22};do
   chr=NA #can run all chr at once
@@ -552,6 +555,9 @@ print(p0)
 dev.off()
 
 })
+
+
+
 
 ####################
 #on reflection, I don't htink it will work for cluster or treatment since that is multiple readings for the same individual
