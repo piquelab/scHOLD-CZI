@@ -2,6 +2,7 @@ library(data.table)
 library(plyr);library(dplyr)
 library("limma")
 library(edgeR)
+library(ggplot2)
 library(flextable)
 library(ftExtra)
 library(rlist)
@@ -10,8 +11,8 @@ library(officer)
 
 ##########################
 
-job="ALOFT"
-#job="CZI"
+#job="ALOFT"
+job="CZI"
 
 if(job=="ALOFT"){
 args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","/rs/rs_grp_scaloft/scALOFT_2024/covariates/ALOFT_covariate_issues_fixed_uniq-n265_psesl-a2_fixed_12-19-2024.txt","ALL","demux","/rs/rs_grp_scaloft/scALOFT_2024/covariates/scALOFT_samples_batch2.txt",0.2) 
@@ -36,7 +37,7 @@ psychvarstorun <- colnames(eigenvec2[,24:59])
 treatments=c("CTRL","LPS","LPS-DEX","PHA","PHA-DEX")
 treatmentsfirst=c("CTRL","PHA")
 contrastdf <- data.frame(control=c("CTRL","CTRL","PHA"),treatment=c("LPS","PHA","PHA-DEX")) #no lps vs lps-dex as too few ind
-opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.RData")
+opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_countlists_wavefilt.icfilt.RData")
 load(opfn)
 combatrun="income_PCs_sex_age_and_treats_adjusted"
 
@@ -45,16 +46,15 @@ allvars <- psychvarstorun[c(1:length(psychvarstorun))][!psychvarstorun[c(1:lengt
 firstrunvars <- allvars[c(1:10)]
 secondrunvars <- c(allvars[c(1:20)],"cage1")
 } else if(job=="CZI"){
-args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",11,0.2) #for testing
+proteincoding=FALSE
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",13,0.15) #for testing
 base <- args[1]
 cov_file=fread(args[2]) #this is the psych cov file
 project=args[3]
 method=args[4]
 dimset=args[5]
 resset=args[6]
-contrastdf <- data.frame(control=c("RNA-CTRL","RNA-LPS"),treatment=c("RNA-LPS","RNA-LPS-DEX"))
-outFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/")
-figuredir=paste0(outFolder,"figures/")
+contrastdf <- data.frame(control=c("RNA-CTRL"),treatment=c("RNA-LPS"))
 #read in genotype PC (run only on current samples. if adding data, since I made the file 03/20/24 remake using plink_to_PC.R)
 leadvar <- fread("/rs/rs_grp_schold/covariates/other_covariates/HOLD LEAD 5.27.25.csv")
 cov_pluslead <- merge(cov_file,leadvar,by="pID",all=T)
@@ -66,11 +66,18 @@ notrun_var <- c("DSES_01","DSES_03","PWaist","PHip","SNI_NoP","age","sex","sex_a
 colnumuotovar <- grep("czi_exp",colnames(eigenvec2))+1
 psychvarstorun <- eigenvec2[,colnumuotovar:length(colnames(eigenvec2))]
 psychvarstorun <- colnames(psychvarstorun)[!colnames(psychvarstorun) %in% notrun_var]
-
-opfn <- paste0(base,method,"_pseudobulk_ctrl/",project,".",resset,".",dimset,".DESeq_countlists.RData")
+if(proteincoding){
+#baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/cell20filt_proteincoding/")
+#opfn <- paste0(base,method,"_pseudobulk_ctrl/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt_proteincoding.RData")
+#load(opfn)
+} else{
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/")
+opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
 load(opfn)
+}
+#counts_ls$C6 <- NULL
+#metadata_ls$C6 <- NULL
 combatrun="SES_PCs_sex_age_and_treats_adjusted_generem"
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/cell20filt/")
 old_cytokines <- psychvarstorun[c(8,14:24)] #old cytokines
 psychvarstorun <- psychvarstorun[!psychvarstorun %in% old_cytokines]
 firstrunvars=c("SES","pr_comp","ISEL_Mean","PSS_all_mean","BPd_avg","Chol_HDL","Chol_LDL","nii_mean","SNI_NumPeople_r","BPs_avg","DED_all_mean","LogCRP","HVS_mean","LivingAlone")
@@ -88,10 +95,8 @@ treatmentsfirst=c("RNA-CTRL","RNA-LPS")
 allPFAS <- psychvarstorun[c(33:53)]
 combPFAS <- allPFAS[seq(1,21,3)]
 PFASvars <- c(allPFAS,"sumPFAS","log_sumPFAS")
-allvars <- c(reordered_psychvarstorun[c(1:82)],"age","Lead","sumPFAS","log_sumPFAS")
-clusters=c("C0", "C1", "C2", "C3", "C4", "C5", "C6")
+allvars <- c(reordered_psychvarstorun[c(1:82)],"age","Lead","sumPFAS","log_sumPFAS",zcytokines)
 }
-
 contrastdf <- transform(contrastdf, contrast=paste0(treatment,"_vs_",control))
 
 baserun="treatvarint_withCOMBAT_limma"
@@ -100,7 +105,7 @@ voom=TRUE
 cpmqqnorm=FALSE
 iselcov=FALSE
 WHRcov=FALSE
-runPFAS=FALSE
+runPFAS=TRUE
 if(voom ){
     run=paste0(baserun,"_voom")
 } else if (cpmqqnorm){
@@ -127,16 +132,11 @@ table <- data.frame(cluster=NA, contrast=NA, variable=NA,number_individuals=NA,g
 fwrite(table, sep='\t', quote=F, row.names=F, col.names=T, paste0(outFolder,"summary.",run,".txt"))
 }
 
-lapply(names(counts_ls)[c(1:length(names(counts_ls)))],function(c){
+lapply(names(counts_ls),function(c){
     #c="C6"
     cluster_metadata_sce <- metadata_ls[[c]]
     cluster_metadata <- data.frame(cluster_metadata_sce)
     cluster_metadata <- transform(cluster_metadata, treats=as.factor(treats),rowid=rownames(cluster_metadata))
-    if(job=="CZI"){
-    cluster_metadataL <- left_join(cluster_metadata,unique(eigenvec2[,c("Sample_ID","Lead","WHR")]),by="Sample_ID")
-    rownames(cluster_metadataL) <- cluster_metadataL$rowid
-    cluster_metadata <- cluster_metadataL
-    }
     opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",c,".",combatrun,".RData")
     load(opfn)
     if(job=="ALOFT"){
@@ -303,11 +303,11 @@ varoutFolder=paste0(baseoutFolder,run,"/")
 
 
 run="SES_PCs_sex_age_and_treats_generem"
-run="SES_PCs_sex_age_and_treats_generem_zingeR"
+#run="SES_PCs_sex_age_and_treats_generem_zingeR"
 baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/")
 outFolder=paste0(baseoutFolder,run,"/")
 variablesL <- c("chronic_sum","cytocomp", "SES","PSS_all_mean", "Chol_HDL", "BPd_avg", "isel", "pr_comp")  #for regular runs
-secondrunvars=c(psychvarstorun[c(1:13,24:45)],"age")
+#secondrunvars=c(psychvarstorun[c(1:13,24:45)],"age")
 treat="RNA-LPS"
 control="RNA-CTRL"
 subvars <- ldply(lapply(secondrunvars, function(var){
@@ -319,7 +319,7 @@ subvars <- ldply(lapply(secondrunvars, function(var){
 }),data.frame)
 
 intrun="SES_PCs_sex_age_and_treats_generem_treatint"
-intrun="SES_PCs_sex_age_and_treats_generem_zingeR_treatint"
+#intrun="SES_PCs_sex_age_and_treats_generem_zingeR_treatint"
 intoutFolder=paste0(baseoutFolder,intrun,"/")
 myDir <- paste0(intoutFolder,"stats/")
 filenames <- list.files(myDir) #file list from directory
@@ -352,7 +352,8 @@ flextable::save_as_image(
   path = paste0(outFolder,"figures/",project,".",resset,".",dimset,".",run,".ctrlvslpsvsintdegs_table.png"))
 
 #New table: var|#ind|#tested genes
-treat="RNA-CTRL"
+treat="RNA-LPS"
+control="RNA-CTRL"
 subvars <- ldply(lapply(secondrunvars, function(var){
     cat("running",treat,"vs",control,var,"\n")
     ctrl_stats <- fread(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",control,".",run,".txt"))
