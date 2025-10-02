@@ -406,6 +406,7 @@ load(opfn)
 combatrun="SES_PCs_sex_age_and_treats_adjusted"
 baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/")
 if (!file.exists(baseoutFolder)) dir.create(baseoutFolder, showWarnings=F)
+
 baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/test/")
 if (!file.exists(baseoutFolder)) dir.create(baseoutFolder, showWarnings=F)
 
@@ -480,6 +481,54 @@ mclapply(names(counts_ls),function(cluster){
     save(adjusted_counts, file=opfn)
 })
 
+combatrun="SES_PCs_sex_age_adjusted"
+mclapply(names(counts_ls),function(cluster){
+    #cluster=names(counts_ls)[1]
+    cat("running ", cluster, "\n")
+    cluster_counts_sce <- counts_ls[[cluster]]
+    cluster_metadata_sce <- metadata_ls[[cluster]]
+    cluster_counts <- assay(cluster_counts_sce, "counts")
+    cluster_metadata_bf <- data.frame(cluster_metadata_sce)
+    cluster_metadata_var <- cluster_metadata_bf[,c("Sample_ID","BATCH","PC1","PC2","sex_alph","age","SES")]
+    cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
+    cluster_counts_t <- cluster_counts[,which(colnames(cluster_counts) %in% rownames(cluster_metadata_var))]
+    all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
+    adjusted_counts <- ComBat_seq(cluster_counts_t, batch=cluster_metadata_var$BATCH, group=NULL, covar_mod=cluster_metadata_var[,c("sex_alph","age","PC1","PC2","SES")])
+    opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
+    save(adjusted_counts, file=opfn)
+})
+
+genestoremove <- ldply(lapply(names(counts_ls), function(cluster){
+    opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
+    load(opfn)
+max=unique(rownames(which(adjusted_counts >= .Machine$integer.max, arr.ind = TRUE)))
+if(is.null(max)){
+    max=NA
+}
+return(data.frame(clus=cluster,genes=max))
+}),data.frame)
+genestoremove #35
+
+combatrun="SES_PCs_sex_age_adjusted_generem"
+mclapply(names(counts_ls),function(cluster){
+    #cluster=names(counts_ls)[1]
+    cat("running ", cluster, "\n")
+    cluster_counts_sce <- counts_ls[[cluster]]
+    cluster_metadata_sce <- metadata_ls[[cluster]]
+    cluster_counts <- assay(cluster_counts_sce, "counts")
+    cluster_metadata <- data.frame(cluster_metadata_sce)
+    genestoremove_c <- subset(genestoremove, clus==cluster)
+    cluster_metadata_var <- cluster_metadata[,c("Sample_ID","BATCH","PC1","PC2","sex_alph","age","SES")]
+    cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
+    cluster_counts_t <- cluster_counts[,which(colnames(cluster_counts) %in% rownames(cluster_metadata_var))]
+    cluster_counts_t <- cluster_counts_t[!rownames(cluster_counts_t) %in% genestoremove_c$genes,]
+    all(colnames(cluster_counts_t) == rownames(cluster_metadata_var))
+
+    adjusted_counts <- ComBat_seq(cluster_counts_t, batch=cluster_metadata_var$BATCH, group=NULL, covar_mod=cluster_metadata_var[,c("sex_alph","age","PC1","PC2","SES")])
+    opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",cluster,".",combatrun,".RData")
+    save(adjusted_counts, file=opfn)
+})
+
 #############################################################
 ############################################################
 opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
@@ -498,6 +547,15 @@ if (!file.exists(paste0(outFolder,"figures/"))) dir.create(paste0(outFolder,"fig
 
 #to test
 outFolder=paste0(baseoutFolder,run,"/test/")
+if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
+if (!file.exists(paste0(outFolder,"stats/"))) dir.create(paste0(outFolder,"stats/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"deseqres/"))) dir.create(paste0(outFolder,"deseqres/"), showWarnings=F)
+if (!file.exists(paste0(outFolder,"figures/"))) dir.create(paste0(outFolder,"figures/"), showWarnings=F)
+
+combatrun="SES_PCs_sex_age_adjusted_generem"
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/test/")
+run="SES_PCs_sex_age_generem"
+outFolder=paste0(baseoutFolder,run,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 if (!file.exists(paste0(outFolder,"stats/"))) dir.create(paste0(outFolder,"stats/"), showWarnings=F)
 if (!file.exists(paste0(outFolder,"deseqres/"))) dir.create(paste0(outFolder,"deseqres/"), showWarnings=F)
@@ -562,7 +620,7 @@ lapply(names(counts_ls),function(cluster){
         cluster_metadata_t <- transform(cluster_metadata_t, sex_alph=as.factor(sex_alph),SNI_NumPeople_r=as.numeric(SNI_NumPeople_r))
         cluster_metadata_t <- within(cluster_metadata_t, sex_alph <- relevel(sex_alph, ref = "Male"))
 
-        lapply(c("PSS_all_mean","ISEL_Mean"),function(var){
+        lapply(c("ISEL_Mean","PSS_all_mean","cytocomp"),function(var){
             #var="pr_comp"
             if(!isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".",cluster,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){
                 cat("running deseq ",cluster, var,i," \n")
@@ -683,8 +741,8 @@ lapply(names(counts_ls),function(cluster){
 })
 
 
-for (var in c(allvars)){
-    #for (var in c("PSS_all_mean","ISEL_Mean")){
+for (var in c(zcytokines)){
+    #for (var in c("PSS_all_mean","ISEL_Mean","cytocomp")){
     for (i in c(treatmentsfirst)){
     if(!isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){
         cat("running ",var," ",i,"\n")
