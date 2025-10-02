@@ -9,12 +9,24 @@ cluster="C4"
 treat="CTRL"
 PC=2
 ci=0.95
+resset=0.1
+dimset=50
+base="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/"
+method="demux"
 
-baseoutFolder=paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/")
-opfn <- paste0(baseoutFolder,"ALL.0.2.50.DESeq_countlists_wavefilt.icfilt.RData")
+#baseoutFolder=paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/")
+#opfn <- paste0(baseoutFolder,"ALL.0.2.50.DESeq_countlists_wavefilt.icfilt.RData")
+#load(opfn)
+
+#outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output/"
+#if (!file.exists(paste0(outFolder,"figures/"))) dir.create(paste0(outFolder,"figures/"), showWarnings=F)
+
+filter <- "CTRLonly" #ALOFT used
+outFolder=paste0(base,method,"_pseudobulk_ctrl/",filter,"/")
+opfn <- paste0(outFolder,"ALL.",resset,".",dimset,".DESeq_countlists_wavefilt.bticfilt.RData")
 load(opfn)
 
-outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output/"
+outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output_CTRLonly/"
 if (!file.exists(paste0(outFolder,"figures/"))) dir.create(paste0(outFolder,"figures/"), showWarnings=F)
 
 #############
@@ -106,7 +118,8 @@ bestPCtableu <- ldply(bestPCtable, data.frame)
 best_df <- ldply(lapply(names(counts_ls),function(c){
     cat("running", c, "\n")
     best.PCs <- subset(bestPCtableu, .id==c)$PCs
-    pheno <- fread(paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/phenotypes.",c,".",treat,".residuals_voom.sort.bed.gz"))
+    #pheno <- fread(paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/phenotypes.",c,".",treat,".residuals_voom.sort.bed.gz"))
+    pheno <- fread(paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals_ctrlonly/phenotypes.",c,".",treat,".residuals_voom.sort.bed.gz"))
     pc_signif_pairs <- fread(paste0(outFolder,"results/",c,".",treat,".best_", best.PCs, ".GEPCs.txt"))
     df <- data.frame(cluster=c,PCs=best.PCs,numInd=length(colnames(pheno))-4,testedgenes=dim(pc_signif_pairs)[1],eGenes_10=dim(pc_signif_pairs[pc_signif_pairs$qval<0.1,])[1],eGenes_5=dim(pc_signif_pairs[pc_signif_pairs$qval<0.05,])[1])
     return(df)
