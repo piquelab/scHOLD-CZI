@@ -207,6 +207,8 @@ return(data.frame(genes=max))
 genestoremove
 #none so move on
 
+combatrun="income_PCs_sex_age_and_treats_adjusted"
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/lessfilt/cell20filt/")
 run="income_PCs_sex_age_and_treats_adjusted_withWave"
 outFolder=paste0(baseoutFolder,run,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
