@@ -5,27 +5,28 @@ library(harmony)
 
 args <- commandArgs(trailingOnly = TRUE)
 #args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","ALL","fastdemux",0.2,13) #for testing
-args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","ALL","demux",0.2,13)
+args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","ALL","demux",0.2,12)
 
 base <- args[1]
 project <- args[2]
 method <- args[3]
+#filter <- "noDEX"
+filter <- "CTRLonly" #ALOFT used
 
 outFolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 
-nodexoutFolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/nodex/")
-if (!file.exists(nodexoutFolder)) dir.create(nodexoutFolder, showWarnings=F)
+suboutFolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/",filter,"/")
+if (!file.exists(suboutFolder)) dir.create(suboutFolder, showWarnings=F)
 
 basefolder=gsub("analysis/","counts_cellranger_hg38/",base)
 
 # set new output dir for filtered out unmatched figures
-figuredir=paste0(nodexoutFolder,"figures/")
+figuredir=paste0(suboutFolder,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 
 #resset <- as.numeric(args[4])
 dim <- as.numeric(args[5])
-filter <- "noDEX"
 
 #future::plan(strategy = 'multicore', workers = 2) #had an issue: One of the ‘future.apply’ iterations (‘future_lapply-1’) unexpectedly generated random numbers
 #options(future.globals.maxSize = 350 * 1024 ^ 3)
@@ -36,13 +37,13 @@ opfn <- paste0(outFolder,project,".seuratObj-post-umap.",dimset,".",filter,".rds
 sc <- read_rds(opfn)
 
 for(resset in c(0.1,0.15,0.2,0.3,0.4)){
-  if(!isTRUE(file.size(paste0(nodexoutFolder,project,".seuratObj-post-clustering-res",resset,".",dimset,".rds")) > 0)){
+  if(!isTRUE(file.size(paste0(suboutFolder,project,".seuratObj-post-clustering-res",resset,".",dimset,".rds")) > 0)){
 cat("runing", dimset, resset, "\n")
 
 scres <- sc %>% FindClusters(resolution = resset) %>% 
     identity()
 
-opfn <- paste0(nodexoutFolder,project,".seuratObj-post-clustering-res",resset,".",dimset,".rds")
+opfn <- paste0(suboutFolder,project,".seuratObj-post-clustering-res",resset,".",dimset,".rds")
 write_rds(scres, opfn)
 
 #opfn_i <- file.info(dir(outFolder, full.names=T, pattern=paste0(project,".seuratObj-post-clustering-res",resset)))

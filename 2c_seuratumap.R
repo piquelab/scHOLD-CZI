@@ -5,7 +5,7 @@ library(harmony)
 
 args <- commandArgs(trailingOnly = TRUE)
 #args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/",13,"ALL","fastdemux","CZI") #for testing
-args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",13,"ALL","demux","ALOFT")
+args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",12,"ALL","demux","ALOFT")
 
 base <- args[1]
 project <- args[3]
@@ -21,9 +21,10 @@ figuredir=paste0(outFolder,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 
 dim <- as.numeric(args[2])
-filter <- "noDEX"
+#filter <- "noDEX"
+filter <- "CTRLonly" #ALOFT used
 
-future::plan(strategy = 'multicore', workers = 6)
+future::plan(strategy = 'multicore', workers = 7)
 options(future.globals.maxSize = 100 * 1024 ^ 3)
 
 ########################

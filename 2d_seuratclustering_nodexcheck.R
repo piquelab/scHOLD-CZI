@@ -464,3 +464,93 @@ p <- Heatmap(mat2, col=mycol, cluster_rows=F, cluster_columns=F, na_col="white",
       bg = "transparent", units = "in", res = 600)
 print(p)
 dev.off()
+
+##############
+
+filter <- "CTRLonly" #ALOFT used
+ctrlonlyoutdir=paste0(base,"5b_IdenCelltype_",method,"/",filter,"/")
+resset=0.1
+dimset=50
+cluster_celltype <- fread(paste0(base,method,"_pseudobulk_ctrl/",filter,"/",project,".",resset,".",dimset,".cluster_celltype.txt"))
+sc <- read_rds(paste0(ctrlonlyoutdir,project,".seuratObj-.harmony-sctype-",resset,".",dimset,".rds"))
+sc@meta.data$letter_clusters <- paste0("C",sc@meta.data$seurat_clusters)
+ctrlonly <- data.frame(barcode=sc@meta.data$NEW_BARCODE, seurat_clusters=sc@meta.data$seurat_clusters)
+rm(sc)
+gc(reset=T)
+
+filter="lessfilt"
+outdir=paste0(base,"5b_IdenCelltype_",method,"/")
+resset=0.2
+dimset=50
+sc_wdex <- read_rds(paste0(outdir,project,".seuratObj-.harmony-sctype-",resset,".",dimset,".rds"))
+sc_wdex@meta.data$letter_clusters <- paste0("C",sc_wdex@meta.data$seurat_clusters)
+wdex <- data.frame(barcode=sc_wdex@meta.data$NEW_BARCODE, seurat_clusters=sc_wdex@meta.data$seurat_clusters)
+cluster_celltype_alltreat <- fread(paste0(base,method,"_pseudobulk_ctrl/",filter,"/",project,".",resset,".",dimset,".cluster_celltype.txt"))
+cluster_celltype_alltreat <- transform(cluster_celltype_alltreat, cell_type=ifelse(cluster=="C1","Naive CD4+ T cells",
+  ifelse(cluster=="C6","Naive CD4+ T cells",ifelse(cluster=="C7", "Monocytes",ifelse(cluster=="C9","Naive CD4+ T cells",cell_type)))))
+cluster_celltype_alltreat <- rbind(cluster_celltype_alltreat,data.frame(cluster=c(12),cell_type=c("B cell")))
+
+rm(sc_wdex)
+gc(reset=T)
+
+scheck <- merge(wdex,ctrlonly,by="barcode",all=T)
+fwrite(scheck,file=paste0(ctrlonlyoutdir,"scheck.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
+scheck <- fread(file=paste0(ctrlonlyoutdir,"scheck.txt"))
+figuredir=paste0(ctrlonlyoutdir,"figures/")
+
+plotDF  <- scheck%>%
+   group_by(seurat_clusters.x,seurat_clusters.y)%>%
+   summarize(Freq=n(),.groups="drop")%>%
+   group_by(seurat_clusters.y)%>%
+   mutate(nt=sum(Freq), Perc=Freq/sum(Freq))%>%
+   ungroup()
+
+plotDF <- transform(plotDF, seurat_clusters.x=ifelse(is.na(seurat_clusters.x),"NAcluster",seurat_clusters.x),seurat_clusters.y=ifelse(is.na(seurat_clusters.y),"NAcluster",seurat_clusters.y))
+
+mat <- plotDF%>%
+    pivot_wider(id_cols=seurat_clusters.y, names_from=seurat_clusters.x, values_from=Perc, values_fill=NA)%>%
+    column_to_rownames(var="seurat_clusters.y")
+mat <- as.matrix(mat)
+mat1 <- t(mat)
+
+#subset to kept clusters
+mat2 <- mat1[gsub("C","",cluster_celltype_alltreat$cluster),gsub("C","",cluster_celltype$cluster)]
+
+## sort
+rnSel <- data.frame(rn=rownames(mat2))%>%mutate(rn_val=as.numeric(rn))%>%arrange(rn_val)%>%pull(rn)
+colSel <- data.frame(cn=colnames(mat2))%>%mutate(cn_val=as.numeric(cn))%>%arrange(cn_val)%>%pull(cn)
+
+mat2 <- mat2[rnSel,colSel]    
+
+colnames(cluster_celltype) <- c("cluster.ctrlony","celltype.ctrlonly")
+colnames(cluster_celltype_alltreat) <- c("cluster.alltreat","celltype.alltreat")
+cluster_celltype_alltreat$seuratcluster <- gsub("C","",cluster_celltype_alltreat$cluster.alltreat)
+celltype <- qpcR:::cbind.na(cluster_celltype, cluster_celltype_alltreat[order(as.numeric(cluster_celltype_alltreat$seuratcluster)),-3])
+
+colnames(mat2) <- paste0(colnames(mat2),"_",celltype$celltype.ctrlonly[!is.na(celltype$celltype.ctrlonly)])
+rownames(mat2) <- paste0(rownames(mat2),"_",celltype$celltype.alltreat)
+
+### set color
+mycol <- colorRamp2(seq(0, 1, length.out=20), colorRampPalette(brewer.pal(n=7, name="YlGnBu"))(20))
+
+### figures
+p <- Heatmap(mat2, col=mycol, cluster_rows=F, cluster_columns=F, na_col="white", 
+  rect_gp=gpar(col="grey", lwd=0.7),          
+  show_row_names=T, row_names_gp=gpar(fontsize=10), 
+  show_column_names=T, column_names_gp=gpar(fontsize=9),
+  #column_split=split,
+  column_title="Control only clusters", column_title_gp=gpar(fontsize=10),
+  row_title="All treat clusters", row_title_gp=gpar(fontsize=10), 
+  #top_annotation=ha, 
+  heatmap_legend_param=list(title="Percent", title_gp=gpar(fontsize=9),
+      at=seq(0, 1, by=0.25), labels_gp=gpar(fontsize=8),
+      grid_width=grid::unit(0.4, "cm"), legend_height=grid::unit(5, "cm")),
+  use_raster=T, raster_device="png")
+
+### save figures
+  png(width = 9, height = 8, file=paste0(figuredir,"nofilt_alltreat_vs_ctrlonly_clusters_heat_norm.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 600)
+print(p)
+dev.off()
+

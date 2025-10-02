@@ -9,7 +9,8 @@ library(plyr)
 #######alt cell typing 
 args <- commandArgs(trailingOnly = TRUE)
 #args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/",0.2,"ALL","fastdemux",13) #for testing
-args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",0.2,"ALL","demux",13) 
+#args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",0.2,"ALL","demux",13) #old aloft (all treat)
+args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",0.2,"ALL","demux",12) 
 
 base <- args[1]
 resset <- as.numeric(args[2])
@@ -17,10 +18,12 @@ project <- args[3]
 method <- args[4]
 dim=args[5]
 cat("resolution=",resset,"\nproject=",project,"\n","method=",method,"\n")
+#filter <- "noDEX"
+filter <- "CTRLonly" #ALOFT used
 
 #outdir=paste0(base,"5b_IdenCelltype_",method,"/")
 #outdir=paste0(outdir,"indwavecellcountfilt/")
-outdir=paste0(base,"5b_IdenCelltype_",method,"/nodex/")
+outdir=paste0(base,"5b_IdenCelltype_",method,"/",filter,"/")
 if (!file.exists(outdir)) dir.create(outdir, showWarnings=F)
 
 # set new output dir for filtered out unmatched figures
@@ -29,7 +32,7 @@ if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 
 #harmonyfolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/")
 #harmonyfolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/indwavecellcountfilt/")
-harmonyfolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/nodex/")
+harmonyfolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/",filter,"/")
 
 source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
 # load cell type annotation function

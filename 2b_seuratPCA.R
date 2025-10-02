@@ -17,7 +17,7 @@ if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 figuredir=paste0(outFolder,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 
-future::plan(strategy = 'multicore', workers = 6)
+future::plan(strategy = 'multicore', workers = 7)
 options(future.globals.maxSize = 100 * 1024 ^ 3)
 
 ##############################
@@ -30,10 +30,12 @@ sc <- readRDS(opfn)
 #sc <- subset(sc, subset = nFeature_RNA > 200 & nFeature_RNA < 5000 & percent.mt < 5) # could try mt<10 to increase data
 if(job=="CZI"){
 sc <- subset(sc,subset=treats != "RNA-LPS-DEX") 
-} else if(job=="ALOFT"){
-	sc <- subset(sc,subset=treats != "LPS-DEX") 
-}
 filter="noDEX"
+} else if(job=="ALOFT"){
+	#sc <- subset(sc,subset=treats != "LPS-DEX") 
+	sc <- subset(sc,subset=treats == "CTRL") 
+	filter="CTRLonly"
+}
 
 sc <- NormalizeData(sc)
 sc <- FindVariableFeatures(sc, selection.method = "vst", nfeatures = 3000)
