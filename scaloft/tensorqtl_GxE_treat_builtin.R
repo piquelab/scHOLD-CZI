@@ -130,10 +130,9 @@ bcftools reheader --samples /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/resid
 tabix -p vcf /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.$control.vcf.gz
 tabix -p vcf /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.$treatment.vcf.gz
 bcftools merge /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.$control.vcf.gz /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.$treatment.vcf.gz -o /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.$treatment.$control.vcf.gz
+tabix -p vcf /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.$treatment.$control.vcf.gz
 
-bgzip /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.$treatment.$control.vcf.gz && tabix -p vcf /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.$treatment.$control.vcf.gz
-
-plink2 --vcf /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.gsubRI.vcf --out /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/vcf_plink/ref.ac1
+plink2 --vcf /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.$treatment.$control.vcf.gz --out /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/vcf_plink/ref.ac1.$treatment.$control
 
 #add # to header and sort and gzip
 module swap gnu9 gnu7/7.3.0
@@ -164,18 +163,19 @@ outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output"
 mkdir -p ${outFolder}/interaction
 out_path="${outFolder}/interaction"
 var="PHA_vs_CTRL"
-cluster="C0"
-PC=`grep $cluster ${outFolder}/bestPCs_table.txt | cut -f2`
-geno="${data_path}/residuals/vcf_plink/ref.ac1" # prefix for plink triplet files
+cluster="C1"
+control="CTRL"
+treatment="PHA"
+
+for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+PC=`grep -w $cluster ${outFolder}/bestPCs_table.txt | cut -f2`
+geno="${data_path}/residuals/vcf_plink/ref.ac1.$treatment.$control" # prefix for plink triplet files
 out_prefix="${cluster}_${var}_tensorqtlint" # prefix for output file
-pheno=${data_path}/residuals/phenotypes.$cluster.${var}.residuals_voom.eQTLonly.sort.bed.gz
+pheno="${data_path}/residuals/phenotypes.$cluster.${var}.residuals_voom.eQTLonly.sort.bed.gz"
 covar="${data_path}/residuals/covariates/${cluster}.${var}.PC1-$PC.covariates_voom.txt"
 int="${data_path}/residuals/covariates/${cluster}.${var}.for_tensorqtl_int.txt"
 
-if [ -s "${out_path}/${out_prefix}.cis_qtl_top_assoc.txt.gz" ] ; then
-    echo "[$(date)] Output already exists. Skipping..."
-    exit 0
-fi
+if [ ! -s "${out_path}/${out_prefix}.cis_qtl_top_assoc.txt.gz" ] ; then
 
 ### -------- LOGGING -------- ###
 echo "[$(date)] Starting tensorQTL interaction on node: $(hostname)"
@@ -196,3 +196,113 @@ python3 -m tensorqtl ${geno} ${pheno} ${out_prefix} \
     -o ${out_path}
 
 echo end on "[$(date)]"
+fi
+done
+
+
+outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output/interaction/"
+clusters <- fread("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt")
+
+myDir <- outFolder #directory to load from
+filenames <- list.files(myDir) #file list from directory
+filenames <- filenames[grep("tensorqtlint.cis_qtl_top_assoc.txt.gz", filenames)] #pick specific files from list
+int <- ldply(lapply(clusters$cluster,function(cluster){
+  #vl <- ldply(lapply(1:length(contrastdf$control),function(x){
+  vl <- ldply(lapply(2,function(x){
+    con=contrastdf[x,]
+    v=paste0(con$treatment,"_vs_",con$control)
+    cat("running",cluster,v,"\n")
+    filenamesc <- filenames[grepl(paste0(cluster,".",v), filenames)] #pick specific files from list
+    if(length(filenamesc)>0){
+    data_names <- gsub("_tensorqtlint.cis_qtl_top_assoc.txt.gz", "", filenamesc) #remove file ending
+    df <- fread(file.path(myDir, filenamesc[1]),header = T)[,analysis:=data_names[1]] #read in specific files and set the df object names. can dro0p unwanted columns
+    #table(df$analysis,df$pval_adj_bh<0.1)
+    #pval_emt = pval_gi * tests_emt and pval_adj_bh=p.adjust(pval_emt,method="BH")
+    df <- transform(df, genotype_pval_emt=pval_g*tests_emt, variable_pval_emt=pval_i*tests_emt)
+    df <- transform(df, genotype_padj=p.adjust(genotype_pval_emt,method="BH"), variable_padj=p.adjust(variable_pval_emt,method="BH"),
+      cluster=cluster,treatment=con$treatment,control=con$control,contrast=v)
+    df <- df %>% relocate(c(cluster,treatment,control,contrast))  # have to use ensgene as there was multi gene symbols
+    #table(singelchrrun$analysis,singelchrrun$genotype_padj<0.1)
+    #table(singelchrrun$analysis,singelchrrun$variable_padj<0.1)
+    return(df)
+    } 
+  }),data.frame)
+}),data.frame)
+#counts_ls[sapply(counts_ls, is.null)] <- NULL
+
+fwrite(int, paste0(outFolder,"tensorint_treatments.GxE_abundance_perclus.txt"), sep='\t', quote=F, row.names=F)
+
+tested <- as.data.frame(table(int$cluster,int$contrast))
+intsig <- subset(int,pval_adj_bh<0.1 )
+tablesig <- as.data.frame(table(intsig$cluster,intsig$contrast))
+outtable <- merge(tested,tablesig,by=c("Var1","Var2"))
+colnames(outtable) <- c("cluster","contrast","tested","int_FDR10")
+fwrite(outtable, paste0(outFolder,"tensorint_treatments.GxE_summary_perclus.txt"), sep='\t', quote=F, row.names=F)
+
+outtablem <- melt(outtabledf)
+names(outtablem)[4] <- "count"
+p <- ggplot(outtablem, aes(fill=count, y=value, x=cluster)) + 
+    geom_bar(position="stack", stat="identity")+
+    facet_wrap(.~contrast,ncol=4)
+    figfn <- paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output/figures/tensorint_treatments.GxE_summary_bar.png")
+png(width = 12, height = 10, file=figfn, pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 600)
+print(p)
+dev.off()
+
+intsig <- transform(intsig, direction=if_else(b_gi<0,"down","up"))
+intsigc <- plyr::count(intsig, c("cluster","contrast","direction"))
+intsigcdf <- merge(intsigc, intsig)
+intsigcdf <- transform(intsigcdf, DEG_direction= if_else(direction=="down",-(freq),freq))
+p <- ggplot(unique(intsigcdf[,c("contrast","cluster","DEG_direction","direction")]), aes(fill=direction, y=DEG_direction, x=cluster)) + 
+    geom_bar(position="stack", stat="identity")+
+    facet_wrap(.~contrast,ncol=4,scales="free_y")+
+    labs(y="# Interaction eGenes")
+    figfn <- paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output/figures/tensorint_treatments.GxE_summary_bar_degonly.png")
+png(width = 13, height = 10, file=figfn, pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 600)
+print(p)
+dev.off()
+
+
+library(ggrastr)
+
+lapply(split(int,int$contrast),function(v){
+    
+    v <- transform(v, cluster=as.factor(cluster))
+    v <- v %>%
+   group_by(cluster)%>%
+   arrange(pval_gi) %>%
+   mutate(observed=-log10(pval_gi), expected=-log10(ppoints(length(pval_gi))))
+
+p0 <- ggplot(v, aes(x=expected, y=observed, color=cluster))+
+    geom_point()+
+    geom_abline(color="grey")+
+    xlab(bquote("Expected"~-log[10]~"("~italic(p)~")"))+
+    ylab(bquote("observed"~-log[10]~"("~italic(p)~")"))+
+    ggtitle(paste0(unique(v$contrast)))+
+    theme_bw()
+    figfn <- paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output/figures/tensorint_treatments._GxE_abundance_pvalues_",unique(v$contrast),".pcl_qqplot.png")
+png(width = 8, height = 8, file=figfn, pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 600)
+print(p0)
+dev.off()
+p0 <- ggplot(v, aes(x=expected, y=observed, color=cluster))+
+    geom_point()+
+    geom_abline(color="grey")+
+    #scale_color_manual(values=c("C0"="#F8766D", "C1"="#D39200", "C2"="#93AA00", "C3"="#00BA38",
+    #    "C4"="#00C19F", "C5"="#00B9E3", "C6"="#619CFF", "C7"="#DB72FB", "C8"="","C9"="#FF61C3"),
+    #    guide=guide_legend(override.aes=list(size=3)))+
+    facet_grid(.~cluster, scales="free_y")+
+    xlab(bquote("Expected"~-log[10]~"("~italic(p)~")"))+
+    ylab(bquote("observed"~-log[10]~"("~italic(p)~")"))+
+    ggtitle(paste0(unique(v$contrast)))+
+    theme_bw()
+
+    figfn <- paste0("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output/figures/tensorint_treatments.GxE_abundance_pvalues_",unique(v$contrast),".facetcluster_pcl_qqplot.png")
+png(width = 12, height = 5, file=figfn, pointsize=12, 
+      bg = "transparent", canvas = "white", units = "in", res = 600)
+print(p0)
+dev.off()
+
+})
