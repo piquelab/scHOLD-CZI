@@ -397,6 +397,18 @@ cluster.markers <- FindMarkers(object = df, ident.1 = type, min.pct = 0.25)
     }
 })
 
+#markers
+marker <- fread(paste0(base,"PanglaoDB_markers_27_Mar_2020.tsv.gz")) #https://panglaodb.se/markers.html?cell_type=%27Dendritic%20cells%27
+colnames(marker) <- gsub(" ","_",colnames(marker))
+hs <- subset(marker, species=="Hs" & canonical_marker==1)
+dc <- subset(hs, cell_type=="Dendritic cells")
+mono <- subset(hs, cell_type=="Monocytes")
+
+cluster.markers_s <- subset(cluster.markers, p_val_adj<0.1 & avg_log2FC>1)
+cluster.markers_s <- cluster.markers_s[order(cluster.markers_s$p_val_adj,abs(cluster.markers_s$avg_log2FC)),]
+c8_dc <- merge(cluster.markers_s,dc,by.x="gene",by.y="official_gene_symbol")
+c8_mono <- merge(cluster.markers_s,mono,by.x="gene",by.y="official_gene_symbol")
+
 #get number of cells per individual
 cellcount <- as.data.frame(table(sc@meta.data$Sample_ID, sc@meta.data$orig.ident))
 png(width = 8, height = 8, file=paste0(figuredir,project,".",resset,".",dimset,".cellcounts_perindividual_hist.png"), pointsize=12, 
