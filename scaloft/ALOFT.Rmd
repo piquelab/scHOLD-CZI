@@ -38,7 +38,8 @@ srun -q primary -n 10 -N 1-1 --mem=700G -t 12:00:00 --pty bash #-x hax[0-18]
 #some nodes have issues (ie. hax1 and hax2 were not loading ggplot2)
 #export MODULEPATH=$MODULEPATH:/wsu/el7/groups/piquelab/modulefiles
 module swap gnu7/7.3.0 gnu9
-module load R/test_4.5.1 #module load R/4.3.2 #old: module load r/4.2.0
+module load R/4.3.2
+#module load R/test_4.5.1 #module load R/4.3.2 #old: module load r/4.2.0
 #module load gnu7/7.3.0 mpich/3.2.1 r/4.2.0 #one job instance required all this, not sure why
 
 #these arguments need to be input After getting interactive node - they are removed upon instance
