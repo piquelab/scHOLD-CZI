@@ -18,6 +18,17 @@ echo running
 plink2 --vcf /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.gsubRI.vcf --out /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/vcf_plink/ref.ac1
 fi
 
+#100125 decisiion to use MAF 0.1 as Justyna used
+module swap gnu9 gnu7/7.3.0
+module load bcftools/1.9
+bcftools view -q 0.1:minor /rs/rs_grp_scaloft/genotypes_liftOver2hg38/ref.ac1.reheader.gsubRI.vcf > /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/vcf/ref.maf10.vcf
+module swap gnu7/7.3.0 gnu9
+
+plink2 --vcf /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/vcf/ref.maf10.vcf --out /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/residuals/vcf_plink/ref.maf10
+
+
+
+
 #my residuals were not designed for tensorqtl, this reformats it
 R
 library(data.table)
@@ -237,16 +248,58 @@ for chr in {1..22};do
 done #chr end
 done #cluster end
 
+#version all chr at once
+data_path="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis"
+out_path="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output_CTRLonly/"
+cluster="C0"
+treat="CTRL"
+PC=2
+mkdir -p ${out_path}
+for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/CTRLonly/ALL.0.1.50.cluster_celltype.txt`;do
+#for chr in {1..22};do
+  chr="NA"
+  for PC in {1..15}; do
+  njobs=`squeue -u fh8591 -r| wc -l`
+  maxjobs=500
+  while [ "$njobs" -gt "$maxjobs" ];do 
+  echo waiting for jobspace, sleeping ...
+  sleep 300 
+  njobs=`squeue -u fh8591 -r| wc -l`
+  done #end while
+      if [ -f "${out_path}/${cluster}_${treat}_PC${PC}_tensorqtlr.cis_qtl.txt.gz" ] ; then
+      echo " Output already exists. Skipping..."
+    else
+    echo submitting cluster $cluster PC $PC
+    sbatch --export=cluster="${cluster}",treat="${treat}",chr="${chr}",PC="$PC",data_path="$data_path",out_path="$out_path" ${data_path}/tensorQTL/src/run_tensorqtl.sh 
+    sleep 1
+  fi
+  done #PC end
+#done #chr end
+done #cluster end
+
+for cluster in C0 C2 C4 C6; do
+
+
 #check output has all cols (19)
-for i in tensorQTL/output/*.txt.gz; do  
+chr="NA"
+for i in ${out_path}/*.txt.gz; do  
   numcol=`less $i | head -n1 | awk '{print NF}'`; 
-  echo $i has $numcol; done
+  if [ "$numcol" -lt 19 ]; then 
+  ip=${i##*/}
+  echo $ip has $numcol cols so missing qval
+  cluster=`echo $ip | cut -d"_" -f1 `
+  PC=`echo $ip | cut -d"_" -f3 | sed 's/PC//g'`
+  sbatch --export=cluster="${cluster}",treat="${treat}",chr="${chr}",PC="$PC",data_path="$data_path",out_path="$out_path" ${data_path}/tensorQTL/src/run_tensorqtl.sh 
+  sleep 1
+  fi
+done
+
 
 #check what has run
 treat="CTRL"
 rm ${out_path}/not_completed.txt ${out_path}/completed.txt
 rm ${out_path}/not_completed.txt ${out_path}/not_completed.txt
-for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt `;do
+for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/CTRLonly/ALL.0.1.50.cluster_celltype.txt`;do
 for chr in {1..22};do
   for PC in {1..10}; do
     out_prefix="${cluster}_${treat}_${chr}_PC${PC}_tensorqtlr" # prefix for output file
@@ -278,17 +331,16 @@ R
 library(data.table)
 library(plyr);library(dplyr)
 
+residual_path="residuals_ctrlonly"
+
 data_path="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/"
-outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output/"
+outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output_CTRLonly/"
 treat="CTRL"
-pheno=${data_path}/residuals/phenotypes.$cluster.$treat.residuals_voom.sort.bed.gz
-covar="${data_path}/residuals/covariates/${cluster}.${treat}.PC1-$PC.covariates_voom.txt"
 base="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/"
 method="demux"
 project="ALL"
-resset=0.2
+resset=0.1
 dimset=50
-clusters <- fread("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt")
 variables <- c("pedu", "pincme", 
                 "psesl", 
                 "pnsi", "cddstf",
@@ -317,44 +369,79 @@ variable_names <- c("Parental Education", "Parental Income",
 variables_df <- data.frame(variable=variables, description=variable_names)
 variables_dftorun <- subset(variables_df, !variable %in% c("csex1","Sex","cage1","Wave","genPC1","genPC2","genPC3"))
 fwrite(variables_dftorun, file=paste0(data_path,"variables_dftorun.txt"),sep="\t",col.names=F,row.names=F, quote=F)
+#running only signature sig variables
+cats <- fread("/rs/rs_grp_scaloft/scALOFT_2024/covariates/aloft_variables_categories.txt")
+catsrm <- subset(cats, category %in% c("other","puberty"))
+filter="CTRLonly" #ALOFT
+glmnetfolder=paste0(base,method,"_pseudobulk_ctrl/",filter,"/glmnet/")
+normmethod="voom" 
+glmnetvoomfolder=paste0(glmnetfolder,normmethod,"/")
+allvarscorr <- fread(file=paste0(glmnetvoomfolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"))
+allvarscorr_s <- subset(allvarscorr, !variable %in% c(catsrm$variable) & !variable=="")
+names(allvarscorr_s)[5] <- "var_explained"
+allvarscorr_1 <- subset(allvarscorr_s, var_explained>=0.05)
+variables_dftorun <- subset(variables_df, variable %in% allvarscorr_1$variable)
+fwrite(variables_dftorun, file=paste0(data_path,"variables_dftorun_glmnet.txt"),sep="\t",col.names=F,row.names=F, quote=F)
 
-opfn <- paste0(base,method,"_pseudobulk_ctrl/lessfilt/",project,".",resset,".",dimset,".DESeq_countlists_wavefilt.icfilt.RData")
+preds <- fread(paste0(glmnetvoomfolder,"all-predictions.txt"))
+
+outFolder=paste0(base,method,"_pseudobulk_ctrl/",filter,"/")
+clusters <- fread(paste0(outFolder,"ALL.0.1.50.cluster_celltype.txt"))
+opfn <- paste0(outFolder,"ALL.",resset,".",dimset,".DESeq_countlists_wavefilt.bticfilt.RData")
 load(opfn)
 
-filenames_res <- list.files(paste0(data_path,"residuals/")) #file list from directory
-filenames_cov <- list.files(paste0(data_path,"residuals/covariates/")) #file list from directory
+outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output_CTRLonly/"
+filenames_res <- list.files(paste0(data_path,"residuals_ctrlonly/")) #file list from directory
+filenames_cov <- list.files(paste0(data_path,"residuals_ctrlonly/covariates/")) #file list from directory
 best_df <- fread(file=paste0(outFolder,"bestPCs_table.txt"))
-
-for(c in clusters$cluster){
+#
+for(c in clusters$cluster[!clusters$cluster %in% c("C9","C10")]){
   for(v in variables_dftorun$variable){
     best.PCs <- subset(best_df, cluster==c)$PCs
-    pheno <- fread(paste0(data_path,"residuals/",filenames_res[grep(paste0("phenotypes.",c,".",treat,".residuals_voom.sort.bed.gz$"),filenames_res)]))
-    covar <- fread(paste0(data_path,"residuals/covariates/",filenames_cov[grep(paste0(c,".",treat,".PC1-",best.PCs,".covariates_voom.txt"),filenames_cov)]))
+    pheno <- fread(paste0(data_path,"residuals_ctrlonly/",filenames_res[grep(paste0("phenotypes.",c,".",treat,".residuals_voom.sort.bed.gz$"),filenames_res)]))
+    covar <- fread(paste0(data_path,"residuals_ctrlonly/covariates/",filenames_cov[grep(paste0(c,".",treat,".PC1-",best.PCs,".covariates_voom.txt"),filenames_cov)]))
     pc_signif_pairs <- subset(fread(paste0(outFolder,"results/",c,".",treat,".best_", best.PCs, ".GEPCs.txt")),qval<0.1)
     phenosub <- subset(pheno, gene_id %in% pc_signif_pairs$phenotype_id)
-    fwrite(phenosub,paste0(data_path,"residuals/","phenotypes.",c,".",treat,".residuals_voom.eQTLonly.sort.bed.gz"),sep="\t",col.names=T,row.names=F, quote=F)
+    fwrite(phenosub,paste0(data_path,"residuals_ctrlonly/","phenotypes.",c,".",treat,".residuals_voom.eQTLonly.sort.bed.gz"),sep="\t",col.names=T,row.names=F, quote=F)
 
     phenoind <- colnames(phenosub[,-c(1:4)])
     covarind <- colnames(covar)[-1]
     cluster_metadata_sce <- metadata_ls[[c]]
     cluster_metadata <- data.frame(cluster_metadata_sce)
-    cluster_metadata_t <- subset(cluster_metadata, treats==treat & Sample_ID %in% phenoind)
+    cluster_metadata_t <- subset(cluster_metadata, treats==treat )
     covvar <- as.data.frame(cluster_metadata_t[,v])
     notna <- complete.cases(covvar)
-    inds <- cluster_metadata_t$Sample_ID[notna]
+    cvinds <- cluster_metadata_t$Sample_ID[notna]
+    common_samples <- Reduce(intersect, list(phenoind,covarind,cvinds))
 
-    covvar <- data.frame(Sample_ID=inds,variable=covvar[notna, ])
-    covvarv <- covvar[,-1, drop=F]
-    rownames(covvarv) <- inds #NEED ROWNAMES
+    colkeep <- colnames(preds) %in% c("Sample_ID",v)
+    predsv <- na.omit(preds[,..colkeep])
+    predsind <- predsv$Sample_ID
+    common_samplesp <- Reduce(intersect, list(phenoind,covarind,predsind))
+    predsub <-na.omit(subset(predsv, Sample_ID %in% common_samplesp))
+
+    cluster_metadata_var <- na.omit(subset(cluster_metadata_t[,c("Sample_ID",v)], Sample_ID %in% common_samples))
+    covvarv <- cluster_metadata_var[,-1, drop=F]
+    rownames(covvarv) <- cluster_metadata_var$Sample_ID #NEED ROWNAMES
     names(covvarv)[1] <- v
-    fwrite(covvarv,file=paste0(data_path,"residuals/covariates/",c,".",treat,".",v,".for_tensorqtl_int.txt"),sep="\t",col.names=T,row.names=T, quote=F)
-    phenosubcov <- subset(phenosub, select = c(colnames(phenosub)[1:4],inds))
-    fwrite(phenosubcov,paste0(data_path,"residuals/","phenotypes.",c,".",treat,".",v,".residuals_voom.eQTLonly.sort.bed.gz"),sep="\t",col.names=T,row.names=F, quote=F)
-    covarsubcov <- subset(covar, select = c(colnames(covar)[1],inds))
-    fwrite(covarsubcov,paste0(data_path,"residuals/covariates/",c,".",treat,".",v,".PC1-",best.PCs,".covariates_voom.txt"),sep="\t",col.names=T,row.names=F, quote=F)
+    fwrite(covvarv,file=paste0(data_path,"residuals_ctrlonly/covariates/",c,".",treat,".",v,".for_tensorqtl_int.txt"),sep="\t",col.names=T,row.names=T, quote=F)
+    phenosubcov <- subset(phenosub, select = c(colnames(phenosub)[1:4],cluster_metadata_var$Sample_ID))
+    fwrite(phenosubcov,paste0(data_path,"residuals_ctrlonly/","phenotypes.",c,".",treat,".",v,".residuals_voom.eQTLonly.sort.bed.gz"),sep="\t",col.names=T,row.names=F, quote=F)
+    covarsubcov <- subset(covar, select = c(colnames(covar)[1],cluster_metadata_var$Sample_ID))
+    fwrite(covarsubcov,paste0(data_path,"residuals_ctrlonly/covariates/",c,".",treat,".",v,".PC1-",best.PCs,".covariates_voom.txt"),sep="\t",col.names=T,row.names=F, quote=F)
 
-  }
-}
+    #using signatures
+    covvarv <- predsub[,-1, drop=F]
+    rownames(covvarv) <- predsub$Sample_ID #NEED ROWNAMES
+    names(covvarv)[1] <- v
+    fwrite(covvarv,file=paste0(data_path,"residuals_ctrlonly/covariates/",c,".",treat,".",v,".for_tensorqtl_int.signature.txt"),sep="\t",col.names=T,row.names=T, quote=F)
+    phenosubcov <- subset(phenosub, select = c(colnames(phenosub)[1:4],predsub$Sample_ID))
+    fwrite(phenosubcov,paste0(data_path,"residuals_ctrlonly/","phenotypes.",c,".",treat,".",v,".residuals_voom.eQTLonly.signature.sort.bed.gz"),sep="\t",col.names=T,row.names=F, quote=F)
+    covarsubcov <- subset(covar, select = c(colnames(covar)[1],predsub$Sample_ID))
+    fwrite(covarsubcov,paste0(data_path,"residuals_ctrlonly/covariates/",c,".",treat,".",v,".PC1-",best.PCs,".covariates_voom.signature.txt"),sep="\t",col.names=T,row.names=F, quote=F)
+
+  } #var
+} #cluster
 
 
 conda init bash
@@ -366,24 +453,20 @@ export LD_LIBRARY_PATH=/wsu/el7/groups/piquelab/R/4.3.2/lib64/R/lib:$LD_LIBRARY_
 module load R/4.3.2 #old: module load r/4.2.0
 
 data_path="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis"
-outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output"
+outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output_CTRLonly"
 mkdir -p ${outFolder}/interaction
 out_path="${outFolder}/interaction"
 treat="CTRL"
-chr=1
 var="cditsm"
-cluster="C9"
+cluster="C0"
+residual_path="residuals_ctrlonly"
 PC=`grep -w $cluster ${outFolder}/bestPCs_table.txt | cut -f2`
-geno="${data_path}/residuals/vcf_plink/ref.ac1.${cluster}.${treat}.${chr}" # prefix for plink triplet files
-out_prefix="${cluster}_${treat}_${chr}_${var}_tensorqtlint" # prefix for output file
-pheno=${data_path}/residuals/phenotypes.$cluster.$treat.${var}.residuals_voom.eQTLonly.sort.bed.gz
-covar="${data_path}/residuals/covariates/${cluster}.${treat}.${var}.PC1-$PC.covariates_voom.txt"
-int="${data_path}/residuals/covariates/${cluster}.${treat}.${var}.for_tensorqtl_int.txt"
 
-if [ -s "${out_path}/${out_prefix}.cis_qtl_top_assoc.txt.gz" ] ; then
-    echo "[$(date)] Output already exists. Skipping..."
-    exit 0
-fi
+geno="${data_path}/residuals/vcf_plink/ref.maf10" #trying without subsetting chr
+out_prefix="${cluster}_${treat}_${var}.tensorqtlint" # prefix for output file
+pheno=${data_path}/${residual_path}/phenotypes.$cluster.$treat.${var}.residuals_voom.eQTLonly.sort.bed.gz
+covar="${data_path}/${residual_path}/covariates/${cluster}.${treat}.${var}.PC1-$PC.covariates_voom.txt"
+int="${data_path}/${residual_path}/covariates/${cluster}.${treat}.${var}.for_tensorqtl_int.txt"
 
 ### -------- LOGGING -------- ###
 echo "[$(date)] Starting tensorQTL interaction on node: $(hostname)"
@@ -395,32 +478,28 @@ echo "interactions file: $int"
 echo "Output file: ${out_path}/${out_prefix}"
 echo "settings: mode=cis_nominal;best_only;fdr=0.1"
 
-#testing using one single plink not chr for gxe
-geno="${data_path}/residuals/vcf_plink/ref.ac1" # prefix for plink triplet files
-
-
 python3 -m tensorqtl ${geno} ${pheno} ${out_prefix} \
     --covariates ${covar} \
     --interaction ${int} \
-    --best_only \
     --fdr 0.1 \
     --mode cis_nominal \
     -o ${out_path}
- 
-echo end on "[$(date)]"
+
+#    --best_only \ #does it run without best only? in cis mode?
+#ValueError: Interactions are only supported in 'cis_nominal' or 'trans' mode.
+
 
 #HPC test
 data_path="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis"
-outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output"
+outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output_CTRLonly"
 mkdir -p ${outFolder}/interaction
 out_path="${outFolder}/interaction"
-
 #cluster="C0"
 treat="CTRL"
 
-for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt`;do
+for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/CTRLonly/ALL.0.1.50.cluster_celltype.txt | egrep -v "C9|C10"`;do
 PC=`grep -w $cluster ${outFolder}/bestPCs_table.txt | cut -f2`
-for var in `cut -f1 ${data_path}/variables_dftorun.txt`; do
+for var in `cut -f1 ${data_path}/variables_dftorun_glmnet.txt`; do
 #for chr in {1..22};do
   chr=NA #can run all chr at once
   njobs=`squeue -u fh8591 -r| wc -l`
@@ -430,10 +509,10 @@ for var in `cut -f1 ${data_path}/variables_dftorun.txt`; do
   sleep 300 
   njobs=`squeue -u fh8591 -r| wc -l`
   done #end while
-      if [ -s "${out_path}/${cluster}_${treat}_${chr}_${var}_tensorqtlint.cis_qtl_top_assoc.txt.gz" ] ; then
+      if [ -s "${out_path}/${cluster}_${treat}_${var}.tensorqtlint.cis_qtl_top_assoc.txt.gz" ] ; then
       echo " Output already exists. Skipping..."
     else
-    echo submitting cluster $cluster chr $chr variable $var 
+    echo submitting cluster $cluster variable $var 
     sbatch --export=cluster="${cluster}",treat="${treat}",chr="${chr}",var="$var",PC="${PC}",data_path="$data_path",out_path="$out_path" ${data_path}/tensorQTL/src/run_tensorqtl_int.sh 
     sleep 1
   fi
@@ -443,9 +522,39 @@ done #cluster end
 mkdir ${out_path}/logs
 mv ${out_path}/*.log ${out_path}/logs/
 
+#for signatures
+out_path="${outFolder}/interaction_signature"
+mkdir -p ${out_path}
+
+for cluster in `awk 'NR>1{print $1}' /rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/CTRLonly/ALL.0.1.50.cluster_celltype.txt | egrep -v "C9|C10"`;do
+PC=`grep -w $cluster ${outFolder}/bestPCs_table.txt | cut -f2`
+for var in `cut -f1 ${data_path}/variables_dftorun_glmnet.txt`; do
+#for chr in {1..22};do
+  chr=NA #can run all chr at once
+  njobs=`squeue -u fh8591 -r| wc -l`
+  maxjobs=500
+  while [ "$njobs" -gt "$maxjobs" ];do 
+  echo waiting for jobspace, sleeping ...
+  sleep 300 
+  njobs=`squeue -u fh8591 -r| wc -l`
+  done #end while
+      if [ -s "${out_path}/${cluster}_${treat}_${var}.tensorqtlint.cis_qtl_top_assoc.txt.gz" ] ; then
+      echo " Output already exists. Skipping..."
+    else
+    echo submitting cluster $cluster variable $var 
+    sbatch --export=cluster="${cluster}",treat="${treat}",chr="${chr}",var="$var",PC="${PC}",data_path="$data_path",out_path="$out_path" ${data_path}/tensorQTL/src/run_tensorqtl_int_signature.sh 
+    sleep 1
+  fi
+#done #chr end
+done #var end
+done #cluster end
+
+
 #combine
-outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output/interaction/"
-clusters <- fread("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/lessfilt/ALL.0.2.50.cluster_celltype.txt")
+outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output_CTRLonly/interaction_signature/"
+#outFolder="/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/tensorQTL/output_CTRLonly/interaction/"
+
+clusters <- fread("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/demux_pseudobulk_ctrl/CTRLonly/ALL.0.1.50.cluster_celltype.txt")
 
 myDir <- outFolder #directory to load from
 filenames <- list.files(myDir) #file list from directory
@@ -455,27 +564,26 @@ int <- ldply(lapply(clusters$cluster,function(cluster){
     cat("running",cluster,v,"\n")
     filenamesc <- filenames[grepl(paste0(cluster,".",treat,".",v), filenames)] #pick specific files from list
     if(length(filenamesc)>0){
-    data_names <- gsub("_tensorqtlint.cis_qtl_top_assoc.txt.gz", "", filenamesc) #remove file ending
-    shortnames <- gsub("[.].*", "", data_names)
-    for(i in 1:length(filenamesc)) assign(data_names[i], fread(file.path(myDir, filenamesc[i]),header = T)[,analysis:=shortnames[i]]) #read in specific files and set the df object names. can dro0p unwanted columns
+    data_names <- gsub(".tensorqtlint.cis_qtl_top_assoc.txt.gz", "", filenamesc) #remove file ending
+    #shortnames <- gsub("[.].*", "", data_names)
+    for(i in 1:length(filenamesc)) assign(data_names[i], fread(file.path(myDir, filenamesc[i]),header = T)[,analysis:=data_names[i]]) #read in specific files and set the df object names. can dro0p unwanted columns
     #combining data
     all_chrs <- lapply(data_names, function(x) get(x)) #grab data from list of df names
     names(all_chrs) <- data_names
-    all_chrsdf <- ldply(all_chrs, data.frame)
-    singelchrrun <- all_chrsdf[grep(".NA",all_chrsdf$.id),] #after testing decided to run all chr together for interaction test
+    singelchrrun <- ldply(all_chrs, data.frame)[,-1]
+    #singelchrrun <- all_chrsdf[grep(".NA",all_chrsdf$.id),] #after testing decided to run all chr together for interaction test
     #table(singelchrrun$analysis,singelchrrun$pval_adj_bh<0.1)
     #pval_emt = pval_gi * tests_emt and pval_adj_bh=p.adjust(pval_emt,method="BH")
     singelchrrun <- transform(singelchrrun, genotype_pval_emt=pval_g*tests_emt, variable_pval_emt=pval_i*tests_emt)
     singelchrrun <- transform(singelchrrun, genotype_padj=p.adjust(genotype_pval_emt,method="BH"), variable_padj=p.adjust(variable_pval_emt,method="BH"),
       cluster=cluster,treat=treat,variable=v)
-    singelchrrun <- singelchrrun %>% relocate(c(cluster,treat,variable),.after =.id)  # have to use ensgene as there was multi gene symbols
+    singelchrrun <- singelchrrun %>% relocate(c(cluster,treat,variable))  # have to use ensgene as there was multi gene symbols
     #table(singelchrrun$analysis,singelchrrun$genotype_padj<0.1)
     #table(singelchrrun$analysis,singelchrrun$variable_padj<0.1)
     return(singelchrrun)
     } 
   }),data.frame)
 }),data.frame)
-#counts_ls[sapply(counts_ls, is.null)] <- NULL
 
 fwrite(int, paste0(outFolder,treat,".GxE_abundance_perclus.txt"), sep='\t', quote=F, row.names=F)
 
