@@ -531,5 +531,34 @@ par(mar=c(5,5,4,2)+0.1) #,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5
 pheatmap(myMat, cluster_row = TRUE, cluster_col = TRUE, na_col = "grey90")
 dev.off()
 
+#category table and boxplot
+allvarscorr <- fread(file=paste0(outFolder,project,".",resset,".",dimset,".",treat,".GLMnet-correlations.txt"))
+names(allvarscorr)[5] <- "var_explained"
+allvarscorr <- merge(allvarscorr,cats, by=c("variable","description"))
+allvarscorr_sub <- subset(allvarscorr, !category %in% c("other","puberty"))
+ddply(allvarscorr_sub, "category",plyr::summarize,
+  num_sig=length(which(var_explained>=varexp_thres)),
+  num_total=length(which(var_explained<varexp_thres)),
+  mean_var_explained=mean(var_explained,na.rm=T))
+
+ann_colors <- c("blood composition"="#e41a1c", "glucocorticoid" = "#377eb8",
+ "asthma"= "#ff7f00", sleep="#a65628","psychosocial"="#5D8863"))
+
+    my_colors <- c("blood composition" = "#e41a1c", "glucocorticoid" = "#377eb8", "asthma" = "#ff7f00", "sleep" = "#a65628", "psychosocial" = "#5D8863")
+
+#ann_colorsns = list(category=c("Blood composition"="#e41a1c", "Glucocorticoid" = "#377eb8", Pulmonary = "#984ea3", "Asthma symptoms"= "#ff7f00", "Social relationships"="#5D8863", "Socioeconomic status" ="#234F1E","Emotionality"= "#988F64"))
+#ann_colorspsych = list(category=c( "Social relationships"="#5D8863", "Socioeconomic status" ="#234F1E","Emotionality"= "#988F64"))
+
+png(width = 8, height = 6, file=paste0(figuredir,treat,".category_box.png"), pointsize=12, 
+      bg = "transparent", units = "in", res = 1200)
+ggplot(allvarscorr_sub, aes(x = category, y = var_explained,fill=category)) +
+  geom_boxplot(width = 0.5) +
+  scale_fill_manual(values=my_colors) + 
+  geom_jitter(width = 0.2, alpha = 0.6, color = "#36454F", size = 2) +
+    theme(panel.background = element_rect(fill="white",colour = "black",size=1.3),
+    axis.text.x = element_text(colour = "black",size = rel(1.3)),axis.text.y = element_text(colour = "black",size = rel(1.3)),
+    axis.title.y = element_text(colour = "black",size = rel(1.5)),axis.title.x = element_text(colour = "black",size = rel(1.5)),
+    legend.position = "none",strip.text.x = element_text(size = rel(1.3))) #+ coord_cartesian(ylim = c(-8,8), xlim = c(-8,8))
+dev.off()
 
 
