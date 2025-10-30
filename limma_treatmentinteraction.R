@@ -7,6 +7,7 @@ library(flextable)
 library(ftExtra)
 library(rlist)
 library(officer)
+library(scuttle)
  my.max <- function(x) ifelse( !all(is.na(x)), max(x, na.rm=T), NA)
 
 ##########################
@@ -23,6 +24,7 @@ method=args[4]
 sample_batch <- args[5]
 resset <- args[6]
 dimset=50
+withCOMBAT=TRUE
 outFolder=paste0(base,method,"_pseudobulk_ctrl/")
 #for resolution 0.2 and including V2 chem
 outFolder=paste0(outFolder,"lessfilt/")
@@ -47,6 +49,7 @@ firstrunvars <- allvars[c(1:10)]
 secondrunvars <- c(allvars[c(1:20)],"cage1")
 } else if(job=="CZI"){
 proteincoding=FALSE
+withCOMBAT=FALSE
 args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",13,0.15) #for testing
 base <- args[1]
 cov_file=fread(args[2]) #this is the psych cov file
@@ -66,18 +69,6 @@ notrun_var <- c("DSES_01","DSES_03","PWaist","PHip","SNI_NoP","age","sex","sex_a
 colnumuotovar <- grep("czi_exp",colnames(eigenvec2))+1
 psychvarstorun <- eigenvec2[,colnumuotovar:length(colnames(eigenvec2))]
 psychvarstorun <- colnames(psychvarstorun)[!colnames(psychvarstorun) %in% notrun_var]
-if(proteincoding){
-#baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/cell20filt_proteincoding/")
-#opfn <- paste0(base,method,"_pseudobulk_ctrl/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt_proteincoding.RData")
-#load(opfn)
-} else{
-baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/")
-opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
-load(opfn)
-}
-#counts_ls$C6 <- NULL
-#metadata_ls$C6 <- NULL
-combatrun="SES_PCs_sex_age_and_treats_adjusted_generem"
 old_cytokines <- psychvarstorun[c(8,14:24)] #old cytokines
 psychvarstorun <- psychvarstorun[!psychvarstorun %in% old_cytokines]
 firstrunvars=c("SES","pr_comp","ISEL_Mean","PSS_all_mean","BPd_avg","Chol_HDL","Chol_LDL","nii_mean","SNI_NumPeople_r","BPs_avg","DED_all_mean","LogCRP","HVS_mean","LivingAlone")
@@ -92,14 +83,32 @@ zcytokines <- c("cytocomp","z_ifny_0_log_w",
 "z_tnfa_0_log_w")
 treatments=c("RNA-CTRL","RNA-LPS","RNA-LPS-DEX")
 treatmentsfirst=c("RNA-CTRL","RNA-LPS")
-allPFAS <- psychvarstorun[c(33:53)]
+allPFAS <- psychvarstorun[c(34:54)]
 combPFAS <- allPFAS[seq(1,21,3)]
 PFASvars <- c(allPFAS,"sumPFAS","log_sumPFAS")
-allvars <- c(reordered_psychvarstorun[c(1:82)],"age","Lead","sumPFAS","log_sumPFAS",zcytokines)
+allvars <- c(reordered_psychvarstorun[c(1:83)],"age","Lead","sumPFAS","log_sumPFAS")
+if(proteincoding){
+#baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/cell20filt_proteincoding/")
+#opfn <- paste0(base,method,"_pseudobulk_ctrl/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt_proteincoding.RData")
+#load(opfn)
+} else{
+baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/")
+opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
+load(opfn)
+}
+#counts_ls$C6 <- NULL
+#metadata_ls$C6 <- NULL
+combatrun="SES_PCs_sex_age_and_treats_adjusted_generem"
+
 }
 contrastdf <- transform(contrastdf, contrast=paste0(treatment,"_vs_",control))
 
-baserun="treatvarint_withCOMBAT_limma"
+if(withCOMBAT){
+    baserun="treatvarint_withCOMBAT_limma"
+} else {
+    baserun="treatvarint_noCOMBAT_limma"
+}
+
 log2cpm=FALSE
 voom=TRUE
 cpmqqnorm=FALSE
@@ -137,8 +146,14 @@ lapply(names(counts_ls),function(c){
     cluster_metadata_sce <- metadata_ls[[c]]
     cluster_metadata <- data.frame(cluster_metadata_sce)
     cluster_metadata <- transform(cluster_metadata, treats=as.factor(treats),rowid=rownames(cluster_metadata))
-    opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",c,".",combatrun,".RData")
-    load(opfn)
+    if(withCOMBAT){
+        opfn <- paste0(baseoutFolder,project,".",resset,".",dimset,".ComBat_seq.",c,".",combatrun,".RData")
+        load(opfn)
+    } else{
+        cluster_counts_sce <- counts_ls[[c]]
+        cluster_counts <- assay(cluster_counts_sce, "counts")
+        adjusted_counts <- cluster_counts   
+    }
     if(job=="ALOFT"){
         adjusted_counts <- adjusted
             cluster_metadata <- transform(cluster_metadata, Sex=as.factor(Sex))
@@ -162,7 +177,7 @@ lapply(names(counts_ls),function(c){
         #adjusted_counts <- unlist(adjusted_countsP[keep, ])
         }
     }
-    lapply(allvars,function(var){
+    lapply(c("PSS_all_mean","ISEL_Mean","cytocomp"),function(var){
         #var="pedu"
         if(var=="factor_HS_CRP"){
         cluster_metadata <- subset(cluster_metadata, HS_CRP<10) #advised to remove as likely an infection
@@ -184,22 +199,22 @@ lapply(names(counts_ls),function(c){
             if(job=="ALOFT"){
             cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","Wave","genPC1","genPC2","genPC3","Sex","cage1","treats",var)]
             } else if (job=="CZI"){
-            cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","age","treats",var)]
+            cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","BATCH","PC1","PC2","sex_alph","age","treats",var)]
             }
             if(var=="age" | var=="cage1"){
             if(job=="ALOFT"){
             cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","Wave","genPC1","genPC2","genPC3","Sex","treats",var)]
             } else if (job=="CZI"){
-            cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","treats",var)]
+            cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","BATCH","PC1","PC2","sex_alph","treats",var)]
             }}
             if(iselcov){
-            cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","age","ISEL_Mean","treats",var)]
+            cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","BATCH","PC1","PC2","sex_alph","age","ISEL_Mean","treats",var)]
             }
             if(WHRcov){
-            cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","sex_alph","age","WHR","treats",var)]
+            cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","BATCH","PC1","PC2","sex_alph","age","WHR","treats",var)]
             }
             if(var=="CVDRISK"){
-            cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","PC1","PC2","treats",var)]
+            cluster_metadata_var <- cluster_metadata_t[,c("Sample_ID","BATCH","PC1","PC2","treats",var)]
             }
             cluster_metadata_var <- cluster_metadata_var[complete.cases(cluster_metadata_var), ] #if there are missing covariates, this removes those individuals as deseq can't handle NAs
             cluster_counts_t <- adjusted_counts[,which(colnames(adjusted_counts) %in% rownames(cluster_metadata_var))]
@@ -217,18 +232,18 @@ lapply(names(counts_ls),function(c){
             design <- model.matrix(~ as.numeric(varcol):cv_d$treats + as.numeric(varcol) + cv_d$treats + as.factor(cv_d$Sex) + factor(cv_d$Wave) + as.numeric(cv_d$genPC1) + as.numeric(cv_d$genPC2) +as.numeric(cv_d$genPC3))
             }} 
             if (job=="CZI" & !var=="CVDRISK"){
-            design <- model.matrix(~ as.numeric(varcol):cv_d$treats + as.numeric(varcol) + cv_d$treats + as.factor(cv_d$sex_alph) + as.numeric(cv_d$age) + as.numeric(cv_d$PC1) + as.numeric(cv_d$PC2))
+            design <- model.matrix(~ as.numeric(varcol):cv_d$treats + as.numeric(varcol) + cv_d$treats + cv_d$BATCH + as.factor(cv_d$sex_alph) + as.numeric(cv_d$age) + as.numeric(cv_d$PC1) + as.numeric(cv_d$PC2))
             if(var=="age"){
-            design <- model.matrix(~ as.numeric(varcol):cv_d$treats + as.numeric(varcol) + cv_d$treats + as.factor(cv_d$sex_alph) + as.numeric(cv_d$PC1) + as.numeric(cv_d$PC2))
+            design <- model.matrix(~ as.numeric(varcol):cv_d$treats + as.numeric(varcol) + cv_d$treats + cv_d$BATCH + as.factor(cv_d$sex_alph) + as.numeric(cv_d$PC1) + as.numeric(cv_d$PC2))
             }}
             if(var=="CVDRISK"){
-            design <- model.matrix(~ as.numeric(varcol):cv_d$treats + as.numeric(varcol) + cv_d$treats + as.numeric(cv_d$PC1) + as.numeric(cv_d$PC2))
+            design <- model.matrix(~ as.numeric(varcol):cv_d$treats + as.numeric(varcol) + cv_d$treats + cv_d$BATCH + as.numeric(cv_d$PC1) + as.numeric(cv_d$PC2))
             }
             if(iselcov){
-            design <- model.matrix(~ as.numeric(varcol):cv_d$treats + as.numeric(varcol) + cv_d$treats + as.numeric(cv_d$ISEL_Mean) + as.factor(cv_d$sex_alph) + as.numeric(cv_d$age) + as.numeric(cv_d$PC1) + as.numeric(cv_d$PC2))
+            design <- model.matrix(~ as.numeric(varcol):cv_d$treats + as.numeric(varcol) + cv_d$treats + cv_d$BATCH + as.numeric(cv_d$ISEL_Mean) + as.factor(cv_d$sex_alph) + as.numeric(cv_d$age) + as.numeric(cv_d$PC1) + as.numeric(cv_d$PC2))
             }
             if(WHRcov){
-            design <- model.matrix(~ as.numeric(varcol):cv_d$treats + as.numeric(varcol) + cv_d$treats + as.numeric(cv_d$WHR) + as.factor(cv_d$sex_alph) + as.numeric(cv_d$age) + as.numeric(cv_d$PC1) + as.numeric(cv_d$PC2))
+            design <- model.matrix(~ as.numeric(varcol):cv_d$treats + as.numeric(varcol) + cv_d$treats + cv_d$BATCH + as.numeric(cv_d$WHR) + as.factor(cv_d$sex_alph) + as.numeric(cv_d$age) + as.numeric(cv_d$PC1) + as.numeric(cv_d$PC2))
             }
             if(log2cpm){
             cpm <- log2(cpm(dge)+1)
