@@ -7,6 +7,11 @@ library(pheatmap)
 ### 
 args <- commandArgs(trailingOnly = TRUE)
 #args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_fixed_05_03_2024.txt","alternative","CZI2_group.txt") #for testing
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_library_metadata_prelim_n165_dbgapIDs_batch_09_17_2024.txt","alternative")
+
+
+
+
 cov_file=args[2]
 
 #read in samples file (just list of samples to run, each sample on newline)

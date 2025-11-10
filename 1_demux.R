@@ -8,6 +8,8 @@ library(data.table)
 
 args <- commandArgs(trailingOnly = TRUE)
 #args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/CZI/RNA/counts_cellranger_hg38/demuxlet/demuxlet/","/rs/rs_grp_schold/covariates/HOLD-CZI_covariates_HOLD01-HOLD14_dbgap.ID_cziexp_03_04_2024.txt","CZ1_group.txt") #for testing
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/CZI/RNA/counts_cellranger_2024-04-19/demuxlet/demuxlet/","/rs/rs_grp_schold/covariates/dbgap/HOLD_library_metadata_prelim_n165_dbgapIDs_batch_09_17_2024.txt") ## RPR run 2025-11-10
+
 analysis=args[1]
 basefolder=args[2]
 if(!is.na(args[4])){
