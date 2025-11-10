@@ -4,8 +4,8 @@ library(tidyverse)
 library(harmony)
 
 args <- commandArgs(trailingOnly = TRUE)
-#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","ALL","fastdemux","CZI") #for testing
-args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","ALL","demux","ALOFT")
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","ALL","fastdemux","CZI") #for testing
+#args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","ALL","demux","ALOFT")
 base <- args[1]
 project <- args[2]
 method <- args[3]
