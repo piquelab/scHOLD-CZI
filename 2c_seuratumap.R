@@ -4,8 +4,8 @@ library(tidyverse)
 library(harmony)
 
 args <- commandArgs(trailingOnly = TRUE)
-#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/",13,"ALL","fastdemux","CZI") #for testing
-args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",12,"ALL","demux","ALOFT")
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/",13,"ALL","fastdemux","CZI") #for testing
+#args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",12,"ALL","demux","ALOFT")
 
 base <- args[1]
 project <- args[3]
@@ -14,15 +14,15 @@ job <- args[5]
 outFolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 
-basefolder=gsub("analysis/","counts_cellranger_hg38/",base)
+basefolder=gsub("analysis/","counts_cellranger_2024-04-19/",base)
 
 # set new output dir for filtered out unmatched figures
 figuredir=paste0(outFolder,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 
 dim <- as.numeric(args[2])
-#filter <- "noDEX"
-filter <- "CTRLonly" #ALOFT used
+filter <- "noDEX"
+#filter <- "CTRLonly" #ALOFT used
 
 future::plan(strategy = 'multicore', workers = 7)
 options(future.globals.maxSize = 100 * 1024 ^ 3)
@@ -43,3 +43,4 @@ sc <- sc %>% FindNeighbors(reduction = "harmony", dims = 1:dimset)
 opfn <- paste0(outFolder,project,".seuratObj-post-umap.",dimset,".",filter,".rds")
 write_rds(sc, opfn)
 }
+

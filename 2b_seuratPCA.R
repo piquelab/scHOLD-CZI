@@ -4,7 +4,7 @@ library(tidyverse)
 library(harmony)
 
 args <- commandArgs(trailingOnly = TRUE)
-args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","ALL","fastdemux","CZI") #for testing
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","ALL","fastdemux","CZI") #for test changed
 #args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","ALL","demux","ALOFT")
 base <- args[1]
 project <- args[2]
@@ -17,8 +17,8 @@ if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 figuredir=paste0(outFolder,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 
-future::plan(strategy = 'multicore', workers = 7)
-options(future.globals.maxSize = 100 * 1024 ^ 3)
+##future::plan(strategy = 'multicore', workers = 7)
+##options(future.globals.maxSize = 100 * 1024 ^ 3)
 
 ##############################
 
@@ -39,7 +39,8 @@ filter="noDEX"
 
 sc <- NormalizeData(sc)
 sc <- FindVariableFeatures(sc, selection.method = "vst", nfeatures = 3000)
-sc <- ScaleData(sc, features = rownames(sc)) #can regress out highly variable input with flag: vars.to.regress = "percent.mt"
+##sc <- ScaleData(sc, features = rownames(sc)) #can regress out highly variable input with flag: vars.to.regress = "percent.mt"
+sc <- ScaleData(sc, features = VariableFeatures(object = sc)) ## RPR AR: We think we only need to do it for var features
 sc <- RunPCA(sc, features = VariableFeatures(object = sc))
 #sc <- RunPCA(sc,pc.genes = sc@var.genes, npcs = 100, verbose = TRUE)
 opfn <- paste0(outFolder,project,".seuratObj-afterPCA.",filter,".rds") 
@@ -50,7 +51,7 @@ p <- DimHeatmap(sc, dims = 1:15, cells = 500, balanced = TRUE) # for multiple PC
 print(p)
 dev.off()
 png(width = 1000, height = 1000, file=paste0(figuredir,project,".",filter,".elbowplot_QC.png"), bg = "transparent", res = 120)
-p <- ElbowPlot(sc)
+p <- ElbowPlot(sc, ndims = 50)
 print(p)
 dev.off()
 
@@ -60,3 +61,4 @@ sc <- RunHarmony(sc,"Library")#had to remove reduction="pca" with SeuratV5 #kmea
 
 opfn <- paste0(outFolder,project,".seuratObj-afterharmony.",filter,".rds") 
 write_rds(sc, opfn)
+
