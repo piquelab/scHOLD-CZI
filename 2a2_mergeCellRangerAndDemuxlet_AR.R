@@ -56,45 +56,31 @@ if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 future::plan(strategy = 'multicore', workers = 10)
 options(future.globals.maxSize = 30 * 1024 ^ 3)
 
-libList <- scan(paste0(basefolder,"libList.txt"),what=character(0)) #was libList.txt, not sure why that only has 4 samples
+libList <- scan(paste0(basefolder,"libList.txt"),what=character(0)) 
 if(!is.na(args[3])){
   libList <- libList[libList %in% samples$V1]
 }
 
 
-##Removig DEX here:
+##Removig DEX libraries here here:
 libList <- libList[grep("DEX",libList,invert=TRUE)]
 
-cat("creating seurat object with ",libList)
-
-sc_list<-sapply(libList, function(x){
-##  x<-libList[1]
-  cat("#Processing: ",x,"\n")
-  gp.data<- Read10X(data.dir = paste0(basefolder,x,"/filtered_feature_bc_matrix"))
-  #################################################################################
-  # creating seurat object
-  #################################################################################
-  sc <- CreateSeuratObject(counts = gp.data, project = paste0("cellranger-CZI.",project),min.cells = 3, min.features=200)
-  sc@meta.data$Library<-rep(x,nrow(sc@meta.data))
-  sc
-} )
 
 ## find matching barcodes demuxlet and the sc object. 
 
-opfn <- paste0(outFolder,project,".seuratObj-merge.",Sys.Date(),".rds") 
-write_rds(sc_list, opfn)
+opfn <- paste0(outFolder,project,".seuratObj-merge.","2025-11-10",".rds")
 
-# read it again if needed
-#opfn_i <- file.info(dir(outFolder, full.names=T, pattern="^seuratObj-merge."))
-#opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
-#sc_list <- read_rds(opfn)
+sc_list <- read_rds(opfn)
 
 sc <- merge(sc_list[[1]],sc_list[-1],add.cell.ids = libList, project=paste0("cellranger-CZI.",project))
 
 rm(sc_list)
 
+opfn <- paste0(outFolder,project,".seuratObj-all-ulnist-prior-to-demux.",Sys.Date(),".rds") 
+sc <- read_rds(opfn)
 
-sc[["RNA"]] <- JoinLayers(sc[["RNA"]])
+### RPR 2025-11-10  Error: vector::reserve
+##sc[["RNA"]] <- JoinLayers(sc[["RNA"]])
 
 opfn <- paste0(outFolder,project,".seuratObj-all-ulnist-prior-to-demux.",Sys.Date(),".rds") 
 write_rds(sc, opfn)
@@ -146,7 +132,12 @@ cat("cellranger stats after merging with demuxlet")
 #opfn <- rownames(opfn_i)[which.max(opfn_i$mtime)]
 #sc <- read_rds(opfn)
 
-count <- sc[["RNA"]]$counts
+## RPR 2025-11-10 I removed the statistics before merging with demuxlet, but I need to add back this here. 
+sc[["percent.mt"]] <- PercentageFeatureSet(sc, pattern = "^MT-")
+
+
+## RPR 2025-11-10  Maybe not needed so I'm trying ithout it. 
+###count <- sc[["RNA"]]$counts
 
 #anno <- data.frame(rn=rownames(count))%>%
 #        mutate(ensgene=gsub("[SU]-|\\.[0-9]*","",rn), 
@@ -266,7 +257,8 @@ dim(dd)
 #filters post demux merge
 cat("post demux merge")
 
-sc[["percent.mt"]] <- PercentageFeatureSet(sc, pattern = "^MT-")
+## RPR commenting out bc already done above. 
+##sc[["percent.mt"]] <- PercentageFeatureSet(sc, pattern = "^MT-")
 
 mean(sc[["percent.mt"]]<10) # 
 mean(sc[["percent.mt"]]<15) # 
@@ -277,6 +269,7 @@ mean(sc[["nFeature_RNA"]]>200) #
 sc[["nCount_RNA"]] %>% summary()
 mean(sc[["nCount_RNA"]] < 20000) # 
 
+## RPR verify methods on this. or is this not used at all?
 scsub <- subset(sc, subset = percent.mt < 10 & nFeature_RNA > 10000) 
 opfn <- paste0(outFolder,project,".seuratObj-postmerge-greater10kfeature.",Sys.Date(),".rds") 
 write_rds(scsub,opfn)
@@ -300,7 +293,8 @@ write_rds(sc, opfn)
 
 cat("cellranger stats after filters")
 
-count <- sc[["RNA"]]$counts
+## RPR 2025-11-10 probably not needed. 
+##count <- sc[["RNA"]]$counts
 
 #anno <- data.frame(rn=rownames(count))%>%
 #        mutate(ensgene=gsub("[SU]-|\\.[0-9]*","",rn), 
@@ -419,138 +413,3 @@ print(fig0)
 dev.off()
 
 
-#############################################
-#  Scatter plots of kallisto vs cell ranger post merge
-#############################################
-
-cat("Scatter plots of kallisto vs cell ranger post merge")
-
-### rename dd
-#dd <- meta%>%group_by(orig.ident)%>%
-dd <- meta%>%group_by(Library)%>%
-             summarise(ncell_CR=n(),
-                       reads_CR=mean(nCount_RNA),
-                       ngene_CR=mean(nFeature_RNA),
-                       percent.mt_CR=mean(percent.mt),
-                       #S_reads=mean(nCount_spliced),
-                       #S_ngene=mean(nFeature_spliced), 
-                       #.groups="drop"
-                       )
-dd <- dd%>%dplyr::rename(ident=Library)%>%
-           mutate(batch=gsub("-.*","",ident))
-
-### load the kallisto dd to merge and do scatter plots
-ddk <- read.csv(paste0(base,kallisto_in,project,".post-merge-pos-mt-filter-kallisto-lib.csv"))#, row.names=F, quote=FALSE)
-
-mdd <- left_join(as.data.frame(dd), ddk, by="ident")
-
-##scatter plots
-
-fig0 <- ggplot(mdd, aes(x=ncell_CR, y=ncell_KL, color=batch.x))+ 
-            geom_point() + 
-            ggtitle(paste0("number of cell per library - CellRanger vs kallisto")) +
-            theme_minimal() +
-            geom_abline(intercept = 0, slope = 1)+
-            #geom_smooth(method='lm')+
-            #labs(fill = "LPS sig genes") +
-            #geom_text(aes(label=ident),vjust=-1.2, size=2.5,  position = position_dodge(width = 1))+
-            #geom_text(aes(label=ident),  position = position_dodge(width = 1))+
-            #geom_text_repel(aes(label=ident),vjust=-0.7, size=2.5)+
-            theme(plot.title = element_text(hjust=0.5, size = rel(1.3)), plot.subtitle=element_text(hjust=0.5), ) +
-            #scale_fill_discrete(name = "Differentially Expressed Genes") +
-            #guides(fill=guide_legend(title="Differentially Expressed Genes")) +
-            #labs(color = "DEG", subtitle = "all participants")
-            #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
-            labs(x="CellRanger # of cells", y="Kallisto # of cells")
-png(paste0(figuredir,project,".Figure7.0-scatter-numb-cell-CR-KL.png"), width=1000, height=600, res=120)
-print(fig0)
-dev.off()
-
-fig0 <- ggplot(mdd, aes(x=ncell_CR, y=ncell_KL, color=batch.x))+ 
-            geom_point() + 
-            ggtitle(paste0("number of cell per library - CellRanger vs kallisto")) +
-            theme_minimal() +
-            geom_abline(intercept = 0, slope = 1)+
-            #geom_smooth(method='lm')+
-            #labs(fill = "LPS sig genes") +
-            geom_text(aes(label=ident),vjust=-1.2, size=2.5,  position = position_dodge(width = 1))+
-            #geom_text(aes(label=ident),  position = position_dodge(width = 1))+
-            #geom_text_repel(aes(label=ident),vjust=-0.7, size=2.5)+
-            theme(plot.title = element_text(hjust=0.5, size = rel(1.3)), plot.subtitle=element_text(hjust=0.5), ) +
-            #scale_fill_discrete(name = "Differentially Expressed Genes") +
-            #guides(fill=guide_legend(title="Differentially Expressed Genes")) +
-            #labs(color = "DEG", subtitle = "all participants")
-            #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
-            labs(x="CellRanger # of cells", y="Kallisto # of cells")
-png(paste0(figuredir,project,".Figure7.0-scatter-numb-cell-CR-KL-labled.png"), width=1000, height=600, res=120)
-print(fig0)
-dev.off()
-
-
-### UMI per cell scatter
-fig0 <- ggplot(mdd, aes(x=reads_CR, y=reads_KL, color=batch.x))+ 
-            geom_point() + 
-            ggtitle(paste0("number of UMI per cell - CellRanger vs kallisto")) +
-            theme_minimal() +
-            #geom_abline(intercept = 0, slope = 1)+
-            #geom_smooth(method='lm')+
-            #labs(fill = "LPS sig genes") +
-            #geom_text(aes(label=ident),vjust=-1.2, size=2.5,  position = position_dodge(width = 1))+
-            #geom_text(aes(label=ident),  position = position_dodge(width = 1))+
-            #geom_text_repel(aes(label=ident),vjust=-0.7, size=2.5)+
-            #geom_text(aes(label=ident),vjust=-1.2, size=2.5,  position = position_dodge(width = 1))+
-            theme(plot.title = element_text(hjust=0.5, size = rel(1.3)), plot.subtitle=element_text(hjust=0.5), ) +
-            #scale_fill_discrete(name = "Differentially Expressed Genes") +
-            #guides(fill=guide_legend(title="Differentially Expressed Genes")) +
-            #labs(color = "DEG", subtitle = "all participants")
-            #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
-            labs(x="CellRanger # of UMI", y="Kallisto # of UMI")
-png(paste0(figuredir,project,".Figure7.1-scatter-numb-readUMI-per-cell-CR-KL.png"), width=1000, height=600, res=120)
-print(fig0)
-dev.off()
-
-
-### genes per cell scatter
-fig0 <- ggplot(mdd, aes(x=ngene_CR, y=ngene_KL, color=batch.x))+ 
-            geom_point() + 
-            ggtitle(paste0("number of genes per cell - CellRanger vs kallisto")) +
-            theme_minimal() +
-            #geom_abline(intercept = 0, slope = 1)+
-            #geom_smooth(method='lm')+
-            #labs(fill = "LPS sig genes") +
-            #geom_text(aes(label=ident),vjust=-1.2, size=2.5,  position = position_dodge(width = 1))+
-            #geom_text(aes(label=ident),  position = position_dodge(width = 1))+
-            #geom_text_repel(aes(label=ident),vjust=-0.7, size=2.5)+
-            #geom_text(aes(label=ident),vjust=-1.2, size=2.5,  position = position_dodge(width = 1))+
-            theme(plot.title = element_text(hjust=0.5, size = rel(1.3)), plot.subtitle=element_text(hjust=0.5), ) +
-            #scale_fill_discrete(name = "Differentially Expressed Genes") +
-            #guides(fill=guide_legend(title="Differentially Expressed Genes")) +
-            #labs(color = "DEG", subtitle = "all participants")
-            #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
-            labs(x="CellRanger # of genes", y="Kallisto # of genes")
-png(paste0(figuredir,project,".Figure7.2-scatter-numb-ngenes-per-cell-CR-KL.png"), width=1000, height=600, res=120)
-print(fig0)
-dev.off()
-
-
-### percent mitochondria
-fig0 <- ggplot(mdd, aes(x=percent.mt_CR, y=percent.mt_KL, color=batch.x))+ 
-            geom_point() + 
-            ggtitle(paste0("Percent Mitochondria (mean) - CellRanger vs kallisto")) +
-            theme_minimal() +
-            #geom_abline(intercept = 0, slope = 1)+
-            #geom_smooth(method='lm')+
-            #labs(fill = "LPS sig genes") +
-            #geom_text(aes(label=ident),vjust=-1.2, size=2.5,  position = position_dodge(width = 1))+
-            #geom_text(aes(label=ident),  position = position_dodge(width = 1))+
-            #geom_text_repel(aes(label=ident),vjust=-0.7, size=2.5)+
-            #geom_text(aes(label=ident),vjust=-1.2, size=2.5,  position = position_dodge(width = 1))+
-            theme(plot.title = element_text(hjust=0.5, size = rel(1.3)), plot.subtitle=element_text(hjust=0.5), ) +
-            #scale_fill_discrete(name = "Differentially Expressed Genes") +
-            #guides(fill=guide_legend(title="Differentially Expressed Genes")) +
-            #labs(color = "DEG", subtitle = "all participants")
-            #labs(subtitle = paste("correlation for ", nrow(mergedmale), " genes", sep="")) +
-            labs(x="CellRanger percent mitochondria", y="Kallisto percent mitochondria")
-png(paste0(figuredir,project,".Figure7.3-scatter-percent-mitochondria-CR-KL.png"), width=1000, height=600, res=120)
-print(fig0)
-dev.off()
