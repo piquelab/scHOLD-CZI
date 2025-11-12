@@ -14,7 +14,7 @@ job <- args[5]
 outFolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 
-basefolder=gsub("analysis/","counts_cellranger_2024-04-19/",base)
+#basefolder=gsub("analysis/","counts_cellranger_2024-04-19/",base)
 
 # set new output dir for filtered out unmatched figures
 figuredir=paste0(outFolder,"figures/")
