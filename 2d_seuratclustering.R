@@ -4,14 +4,15 @@ library(tidyverse)
 library(harmony)
 
 args <- commandArgs(trailingOnly = TRUE)
-#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","ALL","fastdemux",0.2,13) #for testing
-args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","ALL","demux",0.2,12)
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","ALL","fastdemux",0.2,13) #for testing
+#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","ALL","fastdemux",0.2,50) #for testing
+#args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/","ALL","demux",0.2,12)
 
 base <- args[1]
 project <- args[2]
 method <- args[3]
-#filter <- "noDEX"
-filter <- "CTRLonly" #ALOFT used
+filter <- "noDEX"
+#filter <- "CTRLonly" #ALOFT used
 
 outFolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
@@ -19,7 +20,7 @@ if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
 suboutFolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/",filter,"/")
 if (!file.exists(suboutFolder)) dir.create(suboutFolder, showWarnings=F)
 
-basefolder=gsub("analysis/","counts_cellranger_hg38/",base)
+#basefolder=gsub("analysis/","counts_cellranger_hg38/",base)
 
 # set new output dir for filtered out unmatched figures
 figuredir=paste0(suboutFolder,"figures/")
@@ -28,11 +29,13 @@ if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 #resset <- as.numeric(args[4])
 dim <- as.numeric(args[5])
 
-#future::plan(strategy = 'multicore', workers = 2) #had an issue: One of the ‘future.apply’ iterations (‘future_lapply-1’) unexpectedly generated random numbers
-#options(future.globals.maxSize = 350 * 1024 ^ 3)
+future::plan(strategy = 'multicore', workers = 8) #had an issue: One of the ‘future.apply’ iterations (‘future_lapply-1’) unexpectedly generated random numbers
+options(future.globals.maxSize = 350 * 1024 ^ 3)
 
 ########################
-for (dimset in c(dim,50)){
+#for (dimset in c(dim,50)){
+dimset=dim
+
 opfn <- paste0(outFolder,project,".seuratObj-post-umap.",dimset,".",filter,".rds")
 sc <- read_rds(opfn)
 
@@ -130,7 +133,7 @@ gc()
 }
 rm(sc)
 gc(reset=T)
-}
+#}
 
 #plot control vs not
 sc@meta.data$ctrlvstreat <- ifelse(sc@meta.data$treats=="CTRL","CTRL","TREAT")
