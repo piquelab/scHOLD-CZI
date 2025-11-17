@@ -11,7 +11,10 @@ library(pheatmap)
 library(symphony)
 library(ggrepel)
 #################
-args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",0.1,"ALL","demux",50) 
+
+##args <- c("/rs/rs_grp_scaloft/scALOFT_2024/cindy_analysis/",0.1,"ALL","demux",13)
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/",0.1,"ALL","fastdemux",13)
+
 future::plan(strategy = 'multicore', workers = 7)
 options(future.globals.maxSize = 100 * 1024 ^ 3)
 
@@ -21,8 +24,8 @@ project <- args[3]
 method <- args[4]
 dimset=args[5]
 cat("resolution=",resset,"\nproject=",project,"\n","method=",method,"\n")
-#filter <- "noDEX"
-filter <- "CTRLonly" #ALOFT used
+filter <- "noDEX"
+##filter <- "CTRLonly" #ALOFT used
 
 indir=paste0(base,"5b_IdenCelltype_",method,"/",filter,"/")
 
@@ -51,6 +54,8 @@ rmd <- read_tsv("/wsu/el7/groups/piquelab/refData/symphony/tbru_metadata.txt.gz"
 ref$meta_data <- rmd
 
 md <- sc2@meta.data
+
+sc2[["RNA"]] <- as(sc2[["RNA"]], Class="Assay")
 
 # Map query
 query = mapQuery(sc2@assays$RNA@counts,             # query gene expression (genes x cells)
@@ -237,16 +242,18 @@ dev.off()
 
 saveRDS(query,paste0(outdir,"SymphonyQuery.PBMC.rds"))
 
+### RPR stoped here. 
+
 #updating celltype labels on UMAP given types from sctype and symphony
 #changing C1 to CD4+T (CD4+ CD27+), C7 to CD4+ Tcell (either naive or lncrna)
 sc2@meta.data <- transform(sc2@meta.data, final_celltype=ifelse(seurat_clusters=="1", "CD4+ CD27+ T cells", ifelse(seurat_clusters=="7","CD4+ T cells",ifelse(customclassif=="Macrophages","Monocytes",customclassif))))
 
- [1] "Naive CD4+ T cells"    "Natural killer  cells" "CD4+ CD27+ T cells"
- [4] "CD8+ NKT-like cells"   "Pre-B cells"           "CD4+ T cells"
- [7] "Classical Monocytes"   "Memory CD4+ T cells"   "Monocytes"
-[10] "γδ-T cells"            "Plasma B cells"
+##  [1] "Naive CD4+ T cells"    "Natural killer  cells" "CD4+ CD27+ T cells"
+##  [4] "CD8+ NKT-like cells"   "Pre-B cells"           "CD4+ T cells"
+##  [7] "Classical Monocytes"   "Memory CD4+ T cells"   "Monocytes"
+## [10] "γδ-T cells"            "Plasma B cells"
 
-suboutFolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/",filter,"/")
+Suboutfolder=paste0(base,"2.1_mergeCellRangerAnd",method,"/",filter,"/")
 figuredir=paste0(suboutFolder,"figures/")
 
 my_cols <- c('Naive CD4+ T cells'='#31C53F','Natural killer  cells'='#F68282','CD4+ CD27+ T cells'='#1FA195',

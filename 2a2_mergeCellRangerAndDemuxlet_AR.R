@@ -269,7 +269,7 @@ mean(sc[["nFeature_RNA"]]>200) #
 sc[["nCount_RNA"]] %>% summary()
 mean(sc[["nCount_RNA"]] < 20000) # 
 
-## RPR verify methods on this. or is this not used at all?
+## RPR verify methods on this. or is this not used at all? AR: going over paper methods and other downstream scripts, this output is not used again. 
 scsub <- subset(sc, subset = percent.mt < 10 & nFeature_RNA > 10000) 
 opfn <- paste0(outFolder,project,".seuratObj-postmerge-greater10kfeature.",Sys.Date(),".rds") 
 write_rds(scsub,opfn)

@@ -1,4 +1,38 @@
 library(Vennerable)
+require(ggplot2) ## Other packages need to overwrite certain 1.0.1.993 functions
+library(DESeq2)
+library(qvalue)
+library(annotables)
+library(tidyr)
+library(tidyverse)
+library(pheatmap)
+library(stringr)
+require(BiocParallel)
+library(Seurat)
+library(scuttle)
+library(data.table)
+library(plyr); library(dplyr)
+library(parallel)
+library("AnnotationHub")
+library(ggseurat)
+library(cowplot)
+library(sva)
+library(ggpubr)
+library(flextable)
+library(ftExtra)
+library(rlist)
+library(officer)
+
+rm(list=ls())
+
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",13,0.1) #for testing
+    base <- args[1]
+    project=args[3]
+    method=args[4]
+    dimset=args[5]
+    resset=args[6]
+    #baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/")
+    combat="noCOMBAT"
 
 #want to plot isel vs no isel in DESeq model
 #baseoutFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/",resset,".",dimset,"/cell20filt/")
@@ -11,6 +45,9 @@ outFolder=paste0(baseoutFolder,run,"/")
 sesrun=paste0(run,"_iselcov")
 var="PSS_all_mean"
 threshold=0.10
+
+opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt_proteincoding.RData")
+load(opfn)
 
 for (i in treatmentsfirst){
 lapply(c("PSS_all_mean"),function(var){
@@ -267,7 +304,7 @@ var="PSS_all_mean"
 threshold=0.10
 
 for (i in treatmentsfirst){
-    allvardeseq <- ldply(lapply(c("cytocomp","PSS_all_mean","ISEL_Mean"),function(var){
+    allvardeseq <- ldply(lapply(c("PSS_all_mean","ISEL_Mean"),function(var){
     cat("running",i,var,"\n")
     deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
     ses_deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",sesrun,".txt"))
@@ -276,7 +313,7 @@ for (i in treatmentsfirst){
 }), data.frame)
 group_colors <- c("1Not_Sig" = "grey","3noWHR_sig" = "#E34234", "2WHR_sig" = "turquoise4", "4both" = "#7851A9")
 
-lapply(c("cytocomp","PSS_all_mean","ISEL_Mean"),function(v){
+lapply(c("PSS_all_mean","ISEL_Mean"),function(v){
         cat("plotting",i,v,"\n")
     subvardeseq <- subset(allvardeseq, var==v)
 p <- ggplot(subvardeseq, aes(x=WHR_zscore, y=noWHR_zscore)) +
@@ -319,7 +356,7 @@ dev.off()
 }
 
 for (i in treatmentsfirst){
-    lapply(c("cytocomp","PSS_all_mean","ISEL_Mean"),function(var){
+    lapply(c("PSS_all_mean","ISEL_Mean"),function(var){
     cat("running",i,"\n")
     deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",run,".txt"))
     ses_deseqres <- fread(paste0(outFolder,"deseqres/",project,".",resset,".",dimset,".deseqres_",var,"-",i,".",sesrun,".txt"))
@@ -394,7 +431,7 @@ var="ISEL_Mean"
 threshold=0.10
 
 for (i in treatmentsfirst){
-lapply(c("cytocomp","ISEL_Mean","PSS_all_mean"),function(var){
+lapply(c("ISEL_Mean","PSS_all_mean"),function(var){
     allvardeseq <- ldply(lapply(names(counts_ls),function(cluster) {
         opfn <- paste0(outFolder,project,".",resset,".",dimset,".DESeq_output-",i,"-",var,cluster,".",run,".RData")
         load(opfn)

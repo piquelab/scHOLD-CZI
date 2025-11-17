@@ -37,7 +37,7 @@ combat="withCOMBAT"
 run=paste0("treatment_",combat)
 contrastdf <- data.frame(control=c("CTRL"),treatment=c("LPS"))
 } else if (job=="CZI"){
-    args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",13,0.15) #for testing
+    args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",13,0.1) #for testing
     base <- args[1]
     project=args[3]
     method=args[4]
@@ -47,7 +47,9 @@ contrastdf <- data.frame(control=c("CTRL"),treatment=c("LPS"))
     combat="noCOMBAT"
     run=paste0("treatment_",combat)
     #combatrun="SES_PCs_sex_age_and_treats_adjusted_generem"
-    opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
+    #opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt.RData")
+    opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt_proteincoding.RData")
+
     load(opfn)
     contrastdf <- data.frame(control=c("RNA-CTRL"),treatment=c("RNA-LPS"))
 }

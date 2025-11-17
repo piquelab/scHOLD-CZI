@@ -21,7 +21,8 @@ future::plan(strategy = 'multicore', workers = 10)
 options(future.globals.maxSize = 15 * 1024 ^ 3)
 
 args <- commandArgs(trailingOnly = TRUE)
-args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",13,0.15) #for testing
+#args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",13,0.15) #for testing
+args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",13,0.1) #for testing
 #old args
 #args <- c("/rs/rs_grp_schold/CZI/RNA/analysis/","/rs/rs_grp_schold/covariates/dbgap/HOLD_covariates_n165_dbgapIDs_updated_WHR_05_28_2025.txt","ALL","fastdemux",11,0.2) #for testing
 
@@ -31,16 +32,19 @@ project=args[3]
 method=args[4]
 dimset=args[5]
 resset=args[6]
+outFoldertemp=paste0(base,method,"_pseudobulk_ctrl/")
+if (!file.exists(outFoldertemp)) dir.create(outFoldertemp, showWarnings=F)
+# set new output dir for filtered out unmatched figures
 outFolder=paste0(base,method,"_pseudobulk_ctrl/nodex/")
 #outFolder=paste0(base,method,"_pseudobulk_ctrl/adjusted/")
 if (!file.exists(outFolder)) dir.create(outFolder, showWarnings=F)
-# set new output dir for filtered out unmatched figures
 figuredir=paste0(outFolder,"figures/")
 if (!file.exists(figuredir)) dir.create(figuredir, showWarnings=F)
 leadvar <- fread("/rs/rs_grp_schold/covariates/other_covariates/HOLD LEAD 5.27.25.csv")
 cov_pluslead <- merge(cov_file,leadvar,by="pID",all=T)
 cov_pluslead <- transform(cov_pluslead, Lead=ifelse(Lead==-99,NA,Lead))
 #read in genotype PC (run only on current samples. if adding data, since I made the file 03/20/24 remake using plink_to_PC.R)
+
 eigenvec2_o <- fread(file=paste0(base,"genotypePCnokin/",project,".eigenvec_pc.txt")) #will use col PC1
 eigenvec2 <- merge(eigenvec2_o[,-c("sex","sex_alph","age")],cov_pluslead,by.x="Sample_ID",by.y="dbgap.ID",all.x=T)
 notrun_var <- c("DSES_01","DSES_03","PWaist","PHip","SNI_NoP","age","sex","sex_alph","isel","pID") #SNI_NoP is the only variable that should be excluded based on the observed issues in score distributions that don’t make sense (negative values and extreme outliers)
@@ -95,7 +99,8 @@ variables_df <- merge(variables_df,additionalvars[!additionalvars$Variable %in% 
 allvarsdf <- data.frame(variable=c(allvars,PFASvars,"Lead"))
 variables_df <- merge(variables_df,allvarsdf,by="variable",all=T)
 
-cat_cov <- fread(paste0(base,"categories_cov.txt"))
+cat_cov <- fread(paste0(base,"categories_cov.txt")) 
+
 cat_cov_m <- merge(variables_df,cat_cov[,-2],by.y="Column_Name",by.x="variable",all.y=T)
 
 #Lead histogram
@@ -119,29 +124,33 @@ p1 <- ggplot(cov, aes(x=get(myvar)))+#, y=get(myvar))) +
           plot.subtitle = element_text(size = 18, hjust = 0.5)) +
     #theme(legend.position="none", axis.title.x = element_blank()) +
     labs(x=paste0(myvar), subtitle = paste0("n=",nrow(cov))) 
-figfn <- paste(base,method,"_pseudobulk_ctrl/adjusted/figures/", myvar,"_histogram_distribution",".png",sep="")
+figfn <- paste(base,method,"_pseudobulk_ctrl/nodex/figures/", myvar,"_histogram_distribution",".png",sep="")
 png(figfn, width=1000, height=1000, res=120)
 #print(plot_grid(fig1, fig3, ncol=2, labels="AUTO", label_fontface="plain"))
 print(p1)
 dev.off()
 
 options(future.globals.maxSize = 60 * 1024 ^ 3)
-ah <- AnnotationHub()
-if(length(ah["AH98047"]) == 0) {
-  edb <- ah[["AH75011"]]
-} else {
-  edb <- ah[["AH98047"]]
-}
-geneIDs <- genes(edb) %>%
-  as.data.frame() %>% 
-  setDT(keep.rownames = "ensembl_gene_id") %>%
-  .[, c("ensembl_gene_id","entrezid","symbol","seqnames","start","end","strand","gene_biotype", "description")]
-names(geneIDs)[c(1,2,4,8)] <- c("ensgene","entrez","chr","biotype")
+
+## RPR AR changing from annotation hub to annotables back. 
+##ah <- AnnotationHub()
+##if(length(ah["AH98047"]) == 0) {
+##  edb <- ah[["AH75011"]]
+##} else {
+##  edb <- ah[["AH98047"]]
+##}
+
+##geneIDs <- genes(edb) %>%
+##  as.data.frame() %>% 
+##  setDT(keep.rownames = "ensembl_gene_id") %>%
+##  .[, c("ensembl_gene_id","entrezid","symbol","seqnames","start","end","strand","gene_biotype", "description")]
+##names(geneIDs)[c(1,2,4,8)] <- c("ensgene","entrez","chr","biotype")
+geneIDs <- grch38 ## %>% select(ensgene,entrez,symbol,chr,start,end,bio)
 geneIDs.sex <- subset(geneIDs, chr=="Y" | chr=="X")
 geneIDs.male <- subset(geneIDs, chr=="Y" )
 geneIDs.female <- subset(geneIDs, chr=="X")
 
-outdir=paste0(base,"5b_IdenCelltype_",method,"/nodex/")
+outdir=paste0(base,"5b_IdenCelltype_",method,"/noDEX/")
 #outdir=paste0(base,"5b_IdenCelltype_",method,"/")
 opfn <- paste0(outdir,project,".seuratObj-.harmony-sctype-",resset,".",dimset,".rds")
 sc <- read_rds(opfn)
@@ -155,15 +164,15 @@ RcolData <- RcolData[match(rownames(sc@meta.data), RcolData$NEW_BARCODE), ]
 sc@meta.data <-cbind(sc@meta.data,RcolData[,which(!colnames(RcolData) %in% colnames(sc@meta.data))])
 fwrite(sc@meta.data, file=paste0(outFolder,"scmetadata_allind.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
 
-sc_genesdf <- ldply(lapply(unique(sc@meta.data$letter_clusters),function(c){
-    cat("running",c,"\n")
-    sc_c <- subset(sc, subset=letter_clusters==c)
-    sc_genes <- data.frame(cluster=c,genes=rownames(sc[["RNA"]]))
-    rm(sc_c)
-    gc()
-    return(sc_genes)
-}),data.frame)
-    fwrite(sc_genesdf, file=paste0(outFolder,"scmetadata_allgenes.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+#sc_genesdf <- ldply(lapply(unique(sc@meta.data$letter_clusters),function(c){
+#    cat("running",c,"\n")
+#    sc_c <- subset(sc, subset=letter_clusters==c)
+#    sc_genes <- data.frame(cluster=c,genes=rownames(sc[["RNA"]]))
+#    rm(sc_c)
+#    gc()
+#    return(sc_genes)
+#}),data.frame)
+#    fwrite(sc_genesdf, file=paste0(outFolder,"scmetadata_allgenes.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
 
 #subset for 20cell count filt
 counts <- plyr::count(sc@meta.data,c("Library","letter_clusters","Sample_ID"))
@@ -173,16 +182,38 @@ rownames(sc@meta.data) <- sc@meta.data$NEW_BARCODE
 before=dim(sc@meta.data)[1]
 sc <- subset(sc, subset=btic_cellcounts>=20)
 after=dim(sc@meta.data)[1]
-cat("removed ", before-after, "combos","\n") #3971
+cat("removed ", before-after, "combos","\n") #removed 3797 combos
 table(sc@meta.data$letter_clusters,sc@meta.data$treats)
-   RNA-CTRL RNA-LPS
-  C0   134245  139961
-  C1    49547   55992
-  C2    31138   35991
-  C3    37146   28506
-  C4    20917   23281
-  C5      684     811
-  C6       72       0
+#  RNA-CTRL RNA-LPS
+#  C0   134245  139961
+#  C1    49547   55992
+#  C2    31138   35991
+#  C3    37146   28506
+#  C4    20917   23281
+#  C5      684     811
+#  C6       72       0
+
+# Nov 2025 re-run
+#     RNA-CTRL RNA-LPS
+#  C0   132000  145679
+#  C1    52141   61731
+#  C2    31857   35901
+#  C3    37207   28699
+#  C4    21185   23934
+#  C5      668     847
+#  C6      108     131
+
+
+cellcount <- as.data.frame(table(sc@meta.data$letter_clusters, sc@meta.data$orig.ident))
+fwrite(cellcount, file=paste0(outFolder,"cellcount_cluster.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
+lowcell <- subset(cellcount, Freq<1000) #was 3k, going to see if 1k works
+if(dim(lowcell)[1]==0){cat( "no low cell counts")}else{sc <-subset(x = sc, subset = letter_clusters %in% unique(lowcell$Var1), invert = TRUE)}
+
+#sce <- as.SingleCellExperiment(sc) ### GetAssayData doesn't work for multiple layers in v5 assay.
+# a slution is convert v5 assay to a v3 assay with the following code. It seems like this is basically trying to merge the layers.
+#sc <- sc2
+sc[["RNA"]] <- as(sc[["RNA"]], Class="Assay")
 
 sc[["sex_male"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc) %in% geneIDs.male$symbol])
 sc[["sex_female"]] <- PercentageFeatureSet(sc, features = rownames(sc)[rownames(sc) %in% geneIDs.female$symbol])
@@ -232,16 +263,17 @@ png(paste0(figuredir,project,".box_ncount_sex_averageind.png"), width=3000, heig
 print(fig)
 dev.off()
 
-cellcount <- as.data.frame(table(sc@meta.data$letter_clusters, sc@meta.data$orig.ident))
-fwrite(cellcount, file=paste0(outFolder,"cellcount_cluster.txt"), sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
-
-lowcell <- subset(cellcount, Freq<1000) #was 3k, going to see if 1k works
-if(dim(lowcell)[1]==0){cat( "no low cell counts")}else{sc <-subset(x = sc, subset = letter_clusters %in% unique(lowcell$Var1), invert = TRUE)}
+# save thhe seurat obkect post filtering out clusters with less than 1k, and ag
+opfn <- paste0(outFolder,project,".",resset,".",dimset,".seuratObj-all-layers-prior-to-sce-conversion",Sys.Date(),".rds") 
+write_rds(sc, opfn)
 
 sce <- as.SingleCellExperiment(sc)
+
 #opfn <- paste0(base,method,"_pseudobulk_ctrl/",project,".",resset,".",dimset,".SingleCellExperiment.RDS")
 #write_rds(sce, opfn)
 rm(sc)
+rm(sc2)
+
 gc()
 
 #seurat_clusters, treats, BATCH, Library
@@ -305,6 +337,9 @@ all(names(counts_ls) == names(metadata_ls))
 #opfn <- paste0(outFolder,project,".DESeq_countlists.RData")
 opfn <- paste0(base,method,"_pseudobulk_ctrl/nodex/",project,".",resset,".",dimset,".DESeq_countlists.bticfilt_proteincoding.RData")
 save(counts_ls,metadata_ls, file=opfn)
+
+## RPR AR
+## WE stopped here because we do not want to use combatset or anything from combatseq. 
 
 counts_ls <- lapply(unique(summed$letter_clusters), function(i){
 #counts_ls <- lapply(unique(summed$letter_clusters)[!unique(summed$letter_clusters) %in% "C5"], function(i){
