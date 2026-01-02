@@ -398,26 +398,28 @@ outDir_save <- "/rs/rs_grp_schold/CZI/RNA/analysis/fastdemux_pseudobulk_ctrl/nod
 # --- 0.1 LOAD AND PREPARE ATAC-SEQ DATA (DAMS) ---
 
 # Load Psychosocial DAMS (vardams) - uses the user's updated path
-fname_vardams <- "/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_new_2025_08_07/2_Differential_analysis/2_motif.outs/correct_excludeX/summary_Cluster_res0.07_psycho/2_psycho_plotData.comb.txt.gz"
+fname_vardams <- "/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_correct_cellRanger_2025_11_14/2_Differential_analysis/2_motif.outs/summary_option_nFeature15K_cluster_res0.12_psycho_CTRL/2_psycho_plotData.comb.txt.gz"
 vardams <- read.table(fname_vardams, sep="\t", stringsAsFactors=F, header=T, comment="", quote = '"')
 
 # Add identifier (gene/motif name)
 vardams$identifier <- vardams$gene
 
 # Load LPS DAMS (treats_dam) - uses the user's updated path
-fname_treats_dam = "/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_new_2025_08_07/2_Differential_analysis/2_motif.outs/correct_excludeX/treat_Cluster_res0.07_th20_modelInd_summary/2_th20_plotData.comb.txt.gz"
+#fname = "/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_correct_cellRanger_2025_11_14/2_Differential_analysis/2_motif.outs/summary_option_nFeature15K_cluster_res0.12_treat/2_th20_plotData.comb.txt.gz"
+fname_treats_dam = "/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_correct_cellRanger_2025_11_14/2_Differential_analysis/2_motif.outs/summary_option_nFeature15K_cluster_res0.12_treat/2_th20_plotData.comb.txt.gz"
 treats_dam <- read.table(fname_treats_dam, sep="\t", stringsAsFactors=F, header=T, comment="", quote = '"')
 treats_dam$identifier <- treats_dam$gene
 
 
 # Filter out A8 DC (Cluster C8) from LPS data as per user's original code
-treats_dam <- treats_dam %>% filter(Cluster != "C8")
+#treats_dam <- treats_dam %>% filter(Cluster != "C10")
+treats_dam <- treats_dam %>% filter(Cluster %in% c("C0", "C1", "C2", "C4", "C6"))
 
 
 # Define all clusters, variables, and directional combinations
 # Note: These are the clusters remaining after filtering C8 from treats_dam, as implied by the user's code
 clusters_to_analyze <- unique(vardams$Cluster)
-clusters_to_analyze <- clusters_to_analyze[clusters_to_analyze != "C8"] # Also ensure C8 is out of PS
+clusters_to_analyze <- clusters_to_analyze[clusters_to_analyze %in% c("C0", "C1", "C2", "C4", "C6")] # Also ensure C8 is out of PS
 clusters_to_analyze <- sort(clusters_to_analyze)
 
 ps_vars <- c("PSS_all_mean", "ISEL_Mean")
@@ -428,14 +430,18 @@ ps_vars_short <- c("PSS", "ISEL")
 cell_type_map <- c(
     "C0" = "A0 T CD4+",
     "C5" = "A5 T CD4+",
-    "C6" = "A6 T CD4+",
+    "C6" = "A6 B",
     "C7" = "A7 T CD4+",
     "C1" = "A1 T CD8+",
     "C2" = "A2 NK",
-    "C3" = "A3 Monocyte",
-    "C4" = "A4 B",
-    "C8" = "A8 DC"
+    "C3" = "A3 T CD4+",
+    "C4" = "A4 Monocyte",
+    "C8" = "A8 T CD4+", 
+    "C9" = "A9 T CD4+"#, 
+    #"C10" = "A8 T CD4+"
+
 )
+
 
 # List of directional pairs: Var_DIR vs LPS_DIR
 directions <- list(
@@ -446,7 +452,7 @@ directions <- list(
 )
 
 # --- NEW: Define factor levels and color palette for plotting ---
-cell_type_levels <- c("A0 T CD4+", "A1 T CD8+", "A2 NK", "A3 Monocyte", "A4 B", "A5 T CD4+", "A6 T CD4+", "A7 T CD4+", "A8 DC")
+cell_type_levels <- c("A0 T CD4+", "A1 T CD8+", "A2 NK", "A4 Monocyte", "A6 B", "A5 T CD4+", "A3 T CD4+", "A7 T CD4+", "A10 DC")
 col2 <- c("#FF7F00", "#E6E600", "#4DAF4A", "#984EA3", "#AA4B56","#FF7F00","#FF7F00","#FF7F00", "#D4B9DA")
 names(col2) <- cell_type_levels
 
@@ -468,7 +474,8 @@ damssig_filter <- vardams %>%
     select(psycho_variable, Cluster) %>%
     unique() %>%
     # Exclude C8 clusters from the filter list
-    filter(Cluster != "C8")
+    filter(Cluster != "C8") %>%
+    filter(Cluster != "C3")
 
 
 # --- 1. Core Fisher Test Function (Modified to use 'identifier' as key) ---

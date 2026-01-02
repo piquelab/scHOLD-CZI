@@ -172,3 +172,96 @@ print(fig0)
 dev.off()
 
 ##########################
+
+
+
+
+
+
+
+######################## DARs ##########################
+
+rm(list=ls())
+
+setwd("/rs/rs_grp_schold/CZI/RNA/analysis/fastdemux_pseudobulk_ctrl/nodex/noCombat_DESeq/figures/barplot/")
+outFolder="/rs/rs_grp_schold/CZI/RNA/analysis/fastdemux_pseudobulk_ctrl/nodex/noCombat_DESeq/figures/barplot/"
+
+fname="/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_correct_cellRanger_2025_11_14/2_Differential_analysis/1_DiffPeak.outs/summary_option_nFeature15K_cluster_res0.12_psycho_CTRL/2_psycho_plotData.comb.txt.gz"
+res_data <- read.table(fname, sep = "\t", header = TRUE, quote = '"', comment.char = "")
+
+ressig <- res_data %>% filter(p.adjusted < 0.1) %>% filter(psycho_variable %in% c("PSS_all_mean", "ISEL_Mean"))
+
+# assign atac metadata: 
+ressig$celltype <- "NA"
+ressig$celltype[ressig$Cluster == "C0"] <- "A0 T CD4+"
+ressig$celltype[ressig$Cluster == "C1"] <- "A1 T CD8+"
+ressig$celltype[ressig$Cluster == "C2"] <- "A2 NK"
+ressig$celltype[ressig$Cluster == "C4"] <- "A4 Monocyte"
+
+
+ressig$Variable <- "NA"
+ressig$Variable[ressig$psycho_variable == "PSS_all_mean"] <- "Psychological Stress"
+ressig$Variable[ressig$psycho_variable == "ISEL_Mean"] <- "Social Support"
+
+  # Summarize number of DEGs
+  sigs <- ressig %>%
+    mutate(direction = ifelse(estimate > 0, "1", "2")) %>%
+    group_by(celltype, direction, Variable) %>%
+    summarise(ngene = n(), .groups = "drop") %>%
+    mutate(ngene2 = ifelse(direction == "2", -ngene, ngene),
+           comb = paste(celltype, direction, sep = "_"))#,
+           #Variable = Variable) # Add variable name
+  
+
+
+
+
+clusters <- c("C0", "C1", "C2", "C4")#, "5")#, "6")
+celltype <- c("A0 T CD4+", "A1 T CD8+", "A2 NK", "A4 Monocyte")#, "R5 DC")
+
+plotdata <- sigs
+
+plotdata$celltype <- factor(plotdata$celltype, levels= c("A0 T CD4+", "A1 T CD8+", "A2 NK", "A4 Monocyte"))#, "R5 DC"))
+
+col2 <- c("#FF7F00", "#E6E600", "#4DAF4A", "#984EA3")#, "#AA4B56")#, "#D4B9DA")
+
+names(col2) <- celltype
+col2w <- colorspace::lighten(col2, 0.3)
+col2comb <- c(col2, col2w)
+names(col2comb) <- paste(celltype, rep(c(1, 2), each = 4), sep = "_")
+
+# Set axis limits
+maxy <- max(plotdata$ngene2) + 50
+miny <- min(plotdata$ngene2) - 50
+breaks_value <- pretty(c(miny, maxy), 10)
+
+#breaks_value <- pretty(c(-600, 850), 10)
+#breaks_value <- pretty(c(-100, 100), 10)
+
+# Create plot with facet wrap
+fig0 <- ggplot(plotdata, aes(x = celltype, y = ngene2, fill = comb)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = col2comb) +
+  geom_hline(yintercept = 0, color = "grey60") +
+  ylim(1000, 1000) +
+  geom_text(aes(label = abs(ngene2), vjust = ifelse(direction == "2", 1.2, -0.2)), size = 3) +
+  #scale_y_continuous("Number of DEGs", breaks = breaks_value, labels = function(x) abs(x),  limits = c(-600, 850)) +
+  scale_y_continuous("Number of DAMs", breaks = breaks_value, labels = function(x) abs(x)) +#,  limits = c(-100, 100)) +
+  theme_bw() +
+  xlab("Cell Type") +
+  facet_wrap(~Variable, nrow = 1) +  # Facet by variable
+  theme(legend.position = "none",
+        axis.text.x = element_text(size=12, hjust = 1, vjust = 1, angle = 45),
+        axis.text.y = element_text(size=12), 
+        axis.title.y = element_text(size = 12),  
+        axis.title.x = element_blank(),
+        strip.text = element_text(size = 14))
+
+# Save the plot
+png("01.4_nDAMs_PSS_ISEL.png", width = 1300, height = 1000, res = 240)
+print(fig0)
+dev.off()
+
+pdf("01.4_nDAMs_PSS_ISEL.pdf", width=7, height=7)
+print(fig0)
+dev.off()

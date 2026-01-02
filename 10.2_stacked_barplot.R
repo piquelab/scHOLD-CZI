@@ -347,7 +347,7 @@ write.table(degs2, file = fname, sep = "\t", append = F, quote = F, col.names = 
   )
 
 #fname <- paste0(getwd(), "/03.4-percentage_shared_ISEL_nDEGs_SEScorrected_noSES_v2.txt")
-fname <- paste0(getwd(), "/04.2-percentage_shared_PSS_nDEGs_SEScorrected_noSES_v2.txt")
+fname <- paste0(getwd(), "/04.4-percentage_shared_PSS_nDEGs_SEScorrected_noSES_v2.txt")
 write.table(shared_percent, file = fname, sep = "\t", append = F, quote = F, col.names = T, row.names = F)
 
 

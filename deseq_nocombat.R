@@ -67,6 +67,7 @@ combPFAS <- allPFAS[seq(1,21,3)]
 PFASvars <- c(allPFAS,"sumPFAS","log_sumPFAS")
 allvars <- c(reordered_psychvarstorun[c(1:83)],"age","Lead","sumPFAS","log_sumPFAS")
 varinterest <- c("ISEL_Mean","PSS_all_mean")#,"cytocomp")
+varinterest <- c("age")#,"cytocomp")
 
 # Variables to focus on
     variables <- c("DSES_07","DSES_09","FCDEM_12","chronic_sum","smoke","CVDRISK",
@@ -127,7 +128,7 @@ SEScov=FALSE
 if(SEScov){
     run=paste0(run,"_SEScov")
 }
-WHRcov=TRUE
+WHRcov=FALSE
 if(WHRcov){
     run=paste0(run,"_WHRcov")
 }
@@ -176,6 +177,8 @@ lapply(names(counts_ls),function(cluster){
 ## AR: script only ran for zcytokines. changed this to the top three variables instead:  varinterest
         #lapply(zcytokines,function(var){
         lapply(varinterest,function(var){
+        #lapply(PFASvars,function(var){
+
 
             #c("ISEL_Mean","PSS_all_mean","cytocomp")
             #var="pr_comp"
@@ -300,6 +303,7 @@ lapply(names(counts_ls),function(cluster){
 ## AR: script only ran for zcytokines. changed this to the top three variables instead: varinterest
 #for (var in c(zcytokines)){
  for (var in c(varinterest)){
+ #for (var in c(PFASvars)){
     #for (var in c("PSS_all_mean","ISEL_Mean","cytocomp")){
     for (i in c(treatmentsfirst)){
     if(!isTRUE(file.size(paste0(outFolder,"stats/",project,".",resset,".",dimset,".stats_all_cell_types-",var,"-",i,".",run,".txt")) > 0)){

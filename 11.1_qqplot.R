@@ -145,3 +145,101 @@ figfn <- paste0(outFolder, "01.1_qqplot_ISEL_PSS.pdf")
 pdf(figfn, width=7, height=7)
 print(p1)
 dev.off()
+
+
+
+
+#################################################################
+###################DARs ######################
+#################################################################
+
+rm(list=ls())
+
+outFolder="/rs/rs_grp_schold/CZI/RNA/analysis/fastdemux_pseudobulk_ctrl/nodex/noCombat_DESeq/figures/qqplot/"
+setwd("/rs/rs_grp_schold/CZI/RNA/analysis/fastdemux_pseudobulk_ctrl/nodex/noCombat_DESeq/figures/qqplot/")
+
+
+fname="/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_correct_cellRanger_2025_11_14/2_Differential_analysis/1_DiffPeak.outs/summary_option_nFeature15K_cluster_res0.12_psycho_CTRL/2_psycho_plotData.comb.txt.gz"
+res_data <- read.table(fname, sep = "\t", header = TRUE, quote = '"', comment.char = "")
+
+ressig <- res_data %>% filter(p.adjusted < 0.1) %>% filter(psycho_variable %in% c("PSS_all_mean", "ISEL_Mean"))
+ressig <- res_data %>% filter(psycho_variable %in% c("PSS_all_mean", "ISEL_Mean"))
+
+
+# assign atac metadata: 
+ressig$celltype <- "NA"
+ressig$celltype[ressig$Cluster == "C0"] <- "A0 T CD4+"
+ressig$celltype[ressig$Cluster == "C1"] <- "A1 T CD8+"
+ressig$celltype[ressig$Cluster == "C2"] <- "A2 NK"
+ressig$celltype[ressig$Cluster == "C3"] <- "A3 T CD4+"
+ressig$celltype[ressig$Cluster == "C4"] <- "A4 Monocyte"
+ressig$celltype[ressig$Cluster == "C5"] <- "A5 T CD4+"
+ressig$celltype[ressig$Cluster == "C6"] <- "A6 B"
+ressig$celltype[ressig$Cluster == "C7"] <- "A7 T CD4+"
+ressig$celltype[ressig$Cluster == "C8"] <- "A8 T CD4+"
+ressig$celltype[ressig$Cluster == "C9"] <- "A9 T CD4+"
+ressig$celltype[ressig$Cluster == "C10"] <- "A10 DC"
+
+ressig$Variable <- "NA"
+ressig$Variable[ressig$psycho_variable == "PSS_all_mean"] <- "Psychological Stress"
+ressig$Variable[ressig$psycho_variable == "ISEL_Mean"] <- "Social Support"
+
+ressig <- ressig %>% filter(Cluster %in% c("C0", "C1", "C2", "C4", "C6"))
+
+
+# Compute expected and observed p-values
+res <- ressig %>%
+  filter(!is.na(p.value)) %>%
+  arrange(p.value) %>%
+  group_by(Variable, celltype) %>%
+  mutate(r = rank(p.value, ties.method = "random"), pexp = r / length(p.value))
+
+
+
+#celltypes <- c("A0 T CD4+", "A1 T CD8+", "A2 NK", "A3 T CD4+", "A4 Monocyte", "A5 T CD4+", "A6 B", "A7 T CD4+")#, "A8 T CD4+", "A9 T CD4+", "A10 DC")#, "R5 DC")
+celltypes <- c("A0 T CD4+", "A1 T CD8+", "A2 NK",  "A4 Monocyte", "A6 B")#, "A8 T CD4+", "A9 T CD4+", "A10 DC")#, "R5 DC")
+
+col_cl <- c(
+  "A0 T CD4+"   = "#FF7F00",  # orange
+  "A1 T CD8+"   = "#E6E600",  # blue
+  "A2 NK"      = "#4DAF4A",  # reddish orange
+  "A4 Monocyte" = "#984EA3",  # purple/magenta
+  "A6 B"       = "#D97986"#,  # light blue
+ # "A3 T CD4+"  = darken("#FF7F00", 0.1),   #  teal green
+ # "A5 T CD4+"   = lighten("#FF7F00", 0.2),   #  teal green
+ # "A7 T CD4+"  = lighten("#FF7F00",0.5)   #  teal green
+)
+ 
+res$celltype <- factor(res$celltype, levels = celltypes)
+#res$Variable <- factor(res$Variable, levels = c("Psychological Stress", "Social Support", "Cytokines"))
+res$Variable <- factor(res$Variable, levels = c("Psychological Stress", "Social Support"))#, "Cytokines"))
+
+# Create QQ plot
+p1 <- ggplot(res, aes(x = -log10(pexp), y = -log10(p.value), color = celltype)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0) +
+  xlab(expression(Expected -log[10](p))) +
+  ylab(expression(Observed -log[10](p))) +
+  facet_wrap(~Variable, nrow = 1) +  # Facet by variable, in one row
+  theme_bw() +
+     ylim(0, 10) +
+  theme(
+    axis.text.x = element_text(size = 15),  
+    axis.text.y = element_text(size = 15),                        
+    text = element_text(size = 15),                              
+    plot.title = element_text(size = 20)
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 5))) +
+  scale_color_manual(values = col_cl)  # Apply custom colors
+
+# Save the combined plot
+figfn <- paste0(outFolder, "01.4_DARs_qqplot_ISEL_PSSv2.png")
+png(figfn, width = 1500, height = 1000, res = 240)  # Adjust width for side-by-side layout
+print(p1)
+dev.off()
+
+
+figfn <- paste0(outFolder, "01.4_DARs_qqplot_ISEL_PSSv2.pdf")
+pdf(figfn, width=7, height=7)
+print(p1)
+dev.off()

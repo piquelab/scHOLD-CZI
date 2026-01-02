@@ -155,20 +155,94 @@ fig1 <- ggplot(plotdata, aes(y = arrow, x = N, fill = LPS_dir)) +
   labs(y = "Variable", x = "Number of DEGs",
        fill = "LPS response") +
   facet_wrap(~celltype, ncol = 1, scales = "free_y") +  # one column per facet, free y
-  theme_minimal(base_size = 13) +
-  theme(axis.text.y = element_text(size = 11),
-        axis.text.x = element_text(size = 11),
-        axis.title = element_text(size = 13),
-        strip.text = element_text(size = 12))
+   theme_minimal(base_size = 13) +
+   # theme_bw() +
+  theme(axis.text.y = element_text(size = 11, color = "black"),
+        axis.text.x = element_text(size = 11, color = "black"),
+        axis.title = element_text(size = 13, color = "black"),
+        strip.text = element_text(size = 12, color = "black"), 
+        legend.position = "bottom", 
+         plot.margin = margin(t = 10, r = 10, b = 40, l = 10)
+         )+
+  guides(fill = guide_legend(nrow = 1, byrow = TRUE))
 
-png(paste0(getwd(), "/11.2_stacked_LPSupdown_PSS-ISEL_updown_horiz_facet_arrow.png"), 
-    width = 1500, height = 1800, res = 240)  # taller PNG for horizontal facets
+png(paste0(getwd(), "/11.2_stacked_LPSupdown_PSS-ISEL_updown_horiz_facet_arrow_V2.png"), 
+    width = 1300, height = 1800, res = 240)  # taller PNG for horizontal facets
 print(fig1)
 dev.off()
 
 
+library(ggplot2)
+library(cowplot)
+library(grid)
 
 
+## Main plot (no legend)
+p_main <- ggplot(plotdata, aes(y = arrow, x = N, fill = LPS_dir)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c(
+    "Up-regulated" = "#E69F00",
+    "Down-regulated" = "#56B4E9",
+    "Non-significant" = "grey70"
+  )) +
+  labs(y = "Variable", x = "Number of DEGs") +
+  facet_wrap(~celltype, ncol = 1, scales = "free_y") +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text = element_text(size = 11, color = "black"),
+    axis.title = element_text(size = 13, color = "black"),
+    strip.text = element_text(size = 12, color = "black"),
+    legend.position = "none"
+  )
+
+png(paste0(getwd(), "/11.2_stacked_LPSupdown_PSS-ISEL_updown_horiz_facet_arrow_V2.png"), width = 1200, height = 1800, res = 240)
+print(p_main)
+dev.off()
+
+
+library(cowplot)
+library(grid)
+library(ggplot2)
+library(grid)
+library(gtable)
+
+# Build a plot that DEFINITELY contains a legend
+
+png(paste0(getwd(), "/11.3_legend_V2.png"),
+    width = 1200, height = 150, res = 240)
+
+p_leg <- ggplot(
+  data.frame(
+    LPS_dir = factor(
+      c("Up-regulated", "Down-regulated", "Non-significant"),
+      levels = c("Up-regulated", "Down-regulated", "Non-significant")
+    ),
+    x = 1:3, y = 1
+  ),
+  aes(x, y, fill = LPS_dir)
+) +
+  geom_col() +
+  scale_fill_manual(
+    values = c(
+      "Up-regulated" = "#E69F00",
+      "Down-regulated" = "#56B4E9",
+      "Non-significant" = "grey70"
+    ),
+    name = "LPS response"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical"
+  ) +
+  guides(fill = guide_legend(nrow = 1))
+
+# Extract legend safely
+g <- ggplotGrob(p_leg)
+leg <- gtable_filter(g, "guide-box")
+grid.newpage()
+grid.draw(leg)
+dev.off()
 
 
 ##################################################
@@ -179,7 +253,14 @@ setwd("/rs/rs_grp_schold/CZI/RNA/analysis/fastdemux_pseudobulk_ctrl/nodex/noComb
 dataDir <- "/rs/rs_grp_schold/CZI/RNA/analysis/fastdemux_pseudobulk_ctrl/nodex/noCombat_DESeq/deseqres/"
 outDir <- "/rs/rs_grp_schold/CZI/RNA/analysis/fastdemux_pseudobulk_ctrl/nodex/noCombat_DESeq/figures/barplot/"
 
-fname <- "/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_new_2025_08_07/2_Differential_analysis/2_motif.outs/correct_excludeX/summary_Cluster_res0.07_psycho/2_psycho_plotData.comb.txt.gz"
+#fname <- "/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_new_2025_08_07/2_Differential_analysis/2_motif.outs/correct_excludeX/summary_Cluster_res0.07_psycho/2_psycho_plotData.comb.txt.gz"
+fname = "/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_correct_cellRanger_2025_11_14/2_Differential_analysis/2_motif.outs/summary_option_nFeature15K_cluster_res0.12_psycho_CTRL/2_psycho_plotData.comb.txt.gz"
+#/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_new_2025_08_07/2_Differential_analysis/2_motif.outs/correct_excludeX/summary_Cluster_res0.07_psycho/2_psycho_plotData.comb.txt.gz
+#res_motif <- read.table("/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_correct_cellRanger_2025_11_14/2_Differential_analysis/2_motif.outs/summary_option_nFeature15K_cluster_res0.12_psycho_CTRL/2_psycho_plotData.comb.txt.gz", header=T)
+#motif2 <- sort(unique(res_motif$motif_name))
+#motif2 <- sort(unique(res_motif$gene))
+
+
 dams <- read.table(fname, sep="\t", stringsAsFactors=F, header=T, comment="", quote = '"')
 sigdams <- dams %>% filter(padj_t <0.1)
 
@@ -187,16 +268,19 @@ clusters <- c("C0", "C1", "C2", "C3", "C4", "C5")#, "C6")
 vars <- c("ISEL_Mean", "PSS_all_mean")
 
 
+# assign atac metadata: 
 dams$celltype <- "NA"
 dams$celltype[dams$Cluster == "C0"] <- "A0 T CD4+"
-dams$celltype[dams$Cluster == "C5"] <- "A5 T CD4+"
-dams$celltype[dams$Cluster == "C6"] <- "A6 T CD4+"
-dams$celltype[dams$Cluster == "C7"] <- "A7 T CD4+"
 dams$celltype[dams$Cluster == "C1"] <- "A1 T CD8+"
 dams$celltype[dams$Cluster == "C2"] <- "A2 NK"
-dams$celltype[dams$Cluster == "C3"] <- "A3 Monocyte"
-dams$celltype[dams$Cluster == "C4"] <- "A4 B"
-dams$celltype[dams$Cluster == "C8"] <- "A8 DC"
+dams$celltype[dams$Cluster == "C3"] <- "A3 T CD4+"
+dams$celltype[dams$Cluster == "C4"] <- "A4 Monocyte"
+dams$celltype[dams$Cluster == "C5"] <- "A5 T CD4+"
+dams$celltype[dams$Cluster == "C6"] <- "A6 B"
+dams$celltype[dams$Cluster == "C7"] <- "A7 T CD4+"
+dams$celltype[dams$Cluster == "C8"] <- "A8 T CD4+"
+dams$celltype[dams$Cluster == "C9"] <- "A9 T CD4+"
+dams$celltype[dams$Cluster == "C10"] <- "A10 DC"
 
 
 vars <- c("ISEL_Mean", "PSS_all_mean")
@@ -210,19 +294,24 @@ length(unique(dams$gene)) #158
 #fname = "/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_new_2025_08_07/2_Differential_analysis/2_motif.outs/correct_excludeX/treat_Cluster_res0.07_th20_summary/2_response_DAMs.comb.txt.gz"
 #treats <- read.table(fname, sep="\t", stringsAsFactors=F, header=T, comment="", quote = '"')
 
-fname = "/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_new_2025_08_07/2_Differential_analysis/2_motif.outs/correct_excludeX/treat_Cluster_res0.07_th20_modelInd_summary/2_th20_plotData.comb.txt.gz"
+#fname = "/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_new_2025_08_07/2_Differential_analysis/2_motif.outs/correct_excludeX/treat_Cluster_res0.07_th20_modelInd_summary/2_th20_plotData.comb.txt.gz"
+fname = "/rs/rs_grp_scatac/schold/ATAC/sc-atac-cziHOLD/analyses_correct_cellRanger_2025_11_14/2_Differential_analysis/2_motif.outs/summary_option_nFeature15K_cluster_res0.12_treat/2_th20_plotData.comb.txt.gz"
+
 treats <- read.table(fname, sep="\t", stringsAsFactors=F, header=T, comment="", quote = '"')
 
+# assign atac metadata: 
 treats$celltype <- "NA"
 treats$celltype[treats$Cluster == "C0"] <- "A0 T CD4+"
-treats$celltype[treats$Cluster == "C5"] <- "A5 T CD4+"
-treats$celltype[treats$Cluster == "C6"] <- "A6 T CD4+"
-treats$celltype[treats$Cluster == "C7"] <- "A7 T CD4+"
 treats$celltype[treats$Cluster == "C1"] <- "A1 T CD8+"
 treats$celltype[treats$Cluster == "C2"] <- "A2 NK"
-treats$celltype[treats$Cluster == "C3"] <- "A3 Monocyte"
-treats$celltype[treats$Cluster == "C4"] <- "A4 B"
-treats$celltype[treats$Cluster == "C8"] <- "A8 DC"
+treats$celltype[treats$Cluster == "C3"] <- "A3 T CD4+"
+treats$celltype[treats$Cluster == "C4"] <- "A4 Monocyte"
+treats$celltype[treats$Cluster == "C5"] <- "A5 T CD4+"
+treats$celltype[treats$Cluster == "C6"] <- "A6 B"
+treats$celltype[treats$Cluster == "C7"] <- "A7 T CD4+"
+treats$celltype[treats$Cluster == "C8"] <- "A8 T CD4+"
+treats$celltype[treats$Cluster == "C9"] <- "A9 T CD4+"
+treats$celltype[treats$Cluster == "C10"] <- "A10 DC"
 
 treats <- treats %>% filter(!celltype=="A8 DC")
 
@@ -306,7 +395,7 @@ plotdata <- plotdata %>%
 
 
 #plotdata <- plotdata %>% filter(!celltype=="A8 DC")
-#plotdata <- plotdata %>% filter(!celltype=="A1 T CD8+")
+plotdata <- plotdata %>% filter(!celltype %in% c("A3 T CD4+", "A6 B"))
 
 # stacked bar plot faceted by cell type, horizontal orientation
 #fig1 <- ggplot(plotdata, aes(y = Group, x = N, fill = LPS_dir)) +
@@ -319,22 +408,68 @@ fig1 <- ggplot(plotdata, aes(y = arrow, x = N, fill = LPS_dir)) +
        fill = "LPS response") +
   facet_wrap(~celltype, ncol = 1, scales = "free_y") +  # one column per facet, free y
   theme_minimal(base_size = 13) +
-  theme(axis.text.y = element_text(size = 11),
-        axis.text.x = element_text(size = 11),
-        axis.title = element_text(size = 13),
-        strip.text = element_text(size = 12))
+  theme(axis.text.y = element_text(size = 11, color = "black"),
+        axis.text.x = element_text(size = 11, color = "black"),
+        axis.title = element_text(size = 13, color = "black"),
+        strip.text = element_text(size = 12, color = "black"), 
+        legend.position = "none")
 
-png(paste0(getwd(), "/20.6_stacked_LPSupdown_PSS-ISEL_updown_horiz_facet_arrow.png"), 
+png(paste0(getwd(), "/20.6_stacked_LPSupdown_PSS-ISEL_updown_horiz_facet_arrow_v2.png"), 
 #png(paste0(getwd(), "/20.6_stacked_LPSupdown_PSS-ISEL_updown_horiz_facet_noA1CD8.png"), 
-    width = 1500, height = 1800, res = 240)  # taller PNG for horizontal facets
+    width = 1200, height = 1800, res = 240)  # taller PNG for horizontal facets
 print(fig1)
+dev.off()
+
+
+library(ggplot2)
+library(grid)
+library(gtable)
+
+# -------------------------
+# Legend-only plot
+# -------------------------
+
+png(paste0(getwd(), "/20.6_legend_LPS_response.png"),
+    width = 1200, height = 150, res = 240)
+
+p_leg <- ggplot(
+  data.frame(
+    LPS_dir = factor(
+      c("Increased Activity", "Decreased Activity", "Non-significant"),
+      levels = c("Increased Activity", "Decreased Activity", "Non-significant")
+    ),
+    x = 1:3, y = 1
+  ),
+  aes(x, y, fill = LPS_dir)
+) +
+  geom_col() +
+  scale_fill_manual(
+    values = c(
+      "Increased Activity" = "#E69F00",
+      "Decreased Activity" = "#56B4E9",
+      "Non-significant" = "grey70"
+    ),
+    name = "LPS response"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical"
+  ) +
+  guides(fill = guide_legend(nrow = 1))
+
+# Extract and save legend
+g <- ggplotGrob(p_leg)
+leg <- gtable_filter(g, "guide-box")
+grid.newpage()
+grid.draw(leg)
 dev.off()
 
 
 
 
 
-
+    
 
 
 

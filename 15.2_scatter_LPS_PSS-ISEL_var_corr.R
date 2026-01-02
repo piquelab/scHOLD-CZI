@@ -358,62 +358,62 @@ for(i in 1:length(variables)){
         labs(x=var_name,
              y="Normalized Gene Expression") +
         theme(plot.title = element_text(hjust=0.5, size = rel(1.3)))
-      	print(p2)
+        print(p2)
     }     
     dev.off() 
   #}
   
   res_dataC %>% filter(identifier == "CCL20")
   ################ combined and do it in one plot: 
-  		df_geneC$treatment <- "CTRL"
-  		df_geneL$treatment <- "LPS"
+      df_geneC$treatment <- "CTRL"
+      df_geneL$treatment <- "LPS"
 
       #df_geneC$out[df_geneC %in% sids] <- "outlier_CTRL"
       #df_geneL$out[df_geneL %in% sids] <- "outlier_LPS"
 
-  		LFC_C <- round(res_dataC$logFC[res_dataC$identifier==DEGs], 4)
-  		padj_C <- round(res_dataC$padj[res_dataC$identifier==DEGs], 4)
+      LFC_C <- round(res_dataC$logFC[res_dataC$identifier==DEGs], 4)
+      padj_C <- round(res_dataC$padj[res_dataC$identifier==DEGs], 4)
 
-  		LFC_L <- round(res_dataL$logFC[res_dataL$identifier==DEGs], 4)
-  		padj_L <- round(res_dataL$padj[res_dataL$identifier==DEGs], 4)
+      LFC_L <- round(res_dataL$logFC[res_dataL$identifier==DEGs], 4)
+      padj_L <- round(res_dataL$padj[res_dataL$identifier==DEGs], 4)
 
-  		#LFC_I <- round(res_dataI$logFC[res_dataI$identifier==DEGs], 4)
-  		#padj_I <- round(res_dataI$padj[res_dataI$identifier==DEGs], 4)
+      #LFC_I <- round(res_dataI$logFC[res_dataI$identifier==DEGs], 4)
+      #padj_I <- round(res_dataI$padj[res_dataI$identifier==DEGs], 4)
 
-  		df_geneall <- rbind(df_geneC, df_geneL)
+      df_geneall <- rbind(df_geneC, df_geneL)
 
-	    fname=paste(outDir, '/00.', mygene, "_combined_treat_C", cluster, "_", myvar, "_significant_gene_", mygene, ".png", sep="")
-	    #pdf(fname)
-	    png(fname, width=600, height=600, res=120)        
+      fname=paste(outDir, '/00.', mygene, "_combined_treat_C", cluster, "_", myvar, "_significant_gene_", mygene, ".png", sep="")
+      #pdf(fname)
+      png(fname, width=600, height=600, res=120)        
 
-  		#plot combined
-	      #geneSymbol <- grch38$symbol[grch38$ensgene == geneID]
-		 p3 <- ggplot(df_geneall, aes(x = get(myvar), y = expression, color = treatment)) +
-	        geom_point(position=position_jitter(w=0.1, h=0)) +
-	        #geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
-	        geom_smooth(method = lm, se = TRUE) +
+      #plot combined
+        #geneSymbol <- grch38$symbol[grch38$ensgene == geneID]
+     p3 <- ggplot(df_geneall, aes(x = get(myvar), y = expression, color = treatment)) +
+          geom_point(position=position_jitter(w=0.1, h=0)) +
+          #geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+          geom_smooth(method = lm, se = TRUE) +
             scale_color_manual(values = c("CTRL" = "#00BFC4",  
                                           "LPS"  = "#F8766D")) + 
-	        theme_minimal() +
-	        #ggtitle(geneID) +
-	        ggtitle(paste0(geneID, " - C", cluster, " - CTRL and LPS"), 
-	        	#subtitle = paste0("Control: r=", cor_valueC, ", p=", p_valueC, 
-	        	#	"\nLPS: r=", cor_valueL, ", p=", p_valueL)) +
-	        	subtitle = paste0(
+          theme_minimal() +
+          #ggtitle(geneID) +
+          ggtitle(paste0(geneID, " - C", cluster, " - CTRL and LPS"), 
+            #subtitle = paste0("Control: r=", cor_valueC, ", p=", p_valueC, 
+            # "\nLPS: r=", cor_valueL, ", p=", p_valueL)) +
+            subtitle = paste0(
               "Control: LFC=", LFC_C, ", padj=", padj_C, 
-	        		"\nLPS: LFC=", LFC_L, ", padj=", padj_L)) + #, 
-	        		#"\nInteraction: LFC=", LFC_I, ", padj=", padj_I)) +
-	        	#subtitle = paste0("r=", cor_valueL, ", p=", p_valueL)) +
-	        labs(x=var_name,
-	             y="Normalized Gene Expression") +
-	        theme(plot.title = element_text(hjust=0.5, size = rel(1.3)))
-	      print(p3)
-	      dev.off() 
+              "\nLPS: LFC=", LFC_L, ", padj=", padj_L)) + #, 
+              #"\nInteraction: LFC=", LFC_I, ", padj=", padj_I)) +
+            #subtitle = paste0("r=", cor_valueL, ", p=", p_valueL)) +
+          labs(x=var_name,
+               y="Normalized Gene Expression") +
+          theme(plot.title = element_text(hjust=0.5, size = rel(1.3)))
+        print(p3)
+        dev.off() 
 
-	      # get the top 5 highly expressed ctrl genes
-	      #subdfC <- df_geneall %>% arrange(desc(expression)) %>% filter(treatment == "CTRL") %>% slice_head(n = 5)
-		    #subdfL <- df_geneall %>% filter(Sample_ID %in% subdfC$Sample_ID) %>% filter(treatment == "LPS")
-		    #subdfall <- rbind(subdfC, subdfL)  
+        # get the top 5 highly expressed ctrl genes
+        #subdfC <- df_geneall %>% arrange(desc(expression)) %>% filter(treatment == "CTRL") %>% slice_head(n = 5)
+        #subdfL <- df_geneall %>% filter(Sample_ID %in% subdfC$Sample_ID) %>% filter(treatment == "LPS")
+        #subdfall <- rbind(subdfC, subdfL)  
           #write table
           #fname=paste(statsDir, '/00.', mygene, "_combined_treat_C", cluster, "_", myvar, "_top5CTRL_", mygene, ".txt", sep="")
           #write.table(subdfall, fname, sep="\t", row.names=F, quote=F)
