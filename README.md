@@ -24,9 +24,9 @@ Analysis steps and notes:
 * `9.2_single_cell_stats_umaps.R` modification of umap plots for figures
 * `cov_vs_nocov.R` generates plots to compare DESeq models with additional covariates
 * `deseq_nocombat.R` DESEq script for all psychosocial variables and cytokines differential gene expression models
-* `deseq_nocombat_PFAS.R`
-* `deseq_treatment.R`
-* `get_all_DESeq_results.R`
+* `deseq_nocombat_PFAS.R` 
+* `deseq_treatment.R` DESeq model for CTRL vs LPS treatment
+* `get_all_DESeq_results.R` generate DESeq summary of results
 * `kinship_fixvcf.R` QC step for genotyping data
 * `new_combatseq.R` generates pseudobulk count matrices
-* `plink_to_PC.R QC step for genotyping data
+* `plink_to_PC.R` QC step for genotyping data
