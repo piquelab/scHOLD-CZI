@@ -9,7 +9,7 @@ The reprocessing of scRNA-seq samples with the correct CellRanger folder, includ
 * meta-data file with dbgap.ID batch assignments `/rs/rs\_grp\_schold/covariates/dbgap/HOLD\_library\_metadata\_prelim\_n165\_dbgapIDs\_batch\_09\_17\_2024.txt`
 
 
-Analysis steps and notes:
+Primary analysis steps and notes:
 
 * `1\_demux\_alternative.R` repeated and outputs compared to analysis\_bk. No difference in the newly generated files
 * `1b\_demux\_anal3` ran to remove mismatches from fastdemux outputs
@@ -30,3 +30,6 @@ Analysis steps and notes:
 * `kinship_fixvcf.R` QC step for genotyping data
 * `new_combatseq.R` generates pseudobulk count matrices
 * `plink_to_PC.R` QC step for genotyping data
+
+Downstream analysis and figures: 
+* Scripts numbered 10-20 were used for downstream analysis and generating figures. The script names are descriptive of the analysis performed. 
